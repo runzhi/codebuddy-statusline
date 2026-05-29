@@ -93,10 +93,11 @@ def new_stats():
         "total_credits": 0.0,
         "request_count": 0,
         "tool_counts": {},
-        "running_agents": {},   # callId -> {label, subagent_type}
-        "completed_agents": 0,
-        "failed_agents": 0,
+        "agent_log": [],        # [{callId, label, status}, ...] recent entries
+        "agent_total": 0,       # total completed + failed count (for overflow)
     }
+
+AGENT_LOG_MAX = 20  # keep last N in cache (display shows fewer)
 
 def add_line_to_stats(stats, data):
     """Parse a single JSONL entry and accumulate into stats."""
@@ -123,22 +124,24 @@ def add_line_to_stats(stats, data):
         else:
             label = 'agent'
         if call_id:
-            ra = stats.get("running_agents", {})
-            ra[call_id] = {"label": label, "subagent_type": sub_type}
-            stats["running_agents"] = ra
+            log = stats.get("agent_log", [])
+            log.append({"callId": call_id, "label": label, "status": "running"})
+            # Trim to prevent unbounded growth
+            if len(log) > AGENT_LOG_MAX:
+                log = log[-AGENT_LOG_MAX:]
+            stats["agent_log"] = log
 
     elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
         call_id = data.get('callId', '')
+        result_status = data.get('status', 'completed')
         if call_id:
-            ra = stats.get("running_agents", {})
-            if call_id in ra:
-                del ra[call_id]
-                stats["running_agents"] = ra
-        status = data.get('status', '')
-        if status == 'completed':
-            stats["completed_agents"] = stats.get("completed_agents", 0) + 1
-        else:
-            stats["failed_agents"] = stats.get("failed_agents", 0) + 1
+            log = stats.get("agent_log", [])
+            for entry in reversed(log):
+                if entry.get("callId") == call_id:
+                    entry["status"] = "completed" if result_status == "completed" else "failed"
+                    break
+            stats["agent_log"] = log
+        stats["agent_total"] = stats.get("agent_total", 0) + 1
 
     # Count tool calls (skip Agent — tracked separately above)
     if entry_type == 'function_call':
@@ -294,13 +297,12 @@ def format_tools(tool_counts):
     return " ".join(parts)
 
 def format_agents(stats):
-    """Format agent status: running agents individually, completed merged.
-    Example: ↑ researcher ↑ fe-dev ✓ Agent×3"""
-    running = stats.get("running_agents", {})
-    completed = stats.get("completed_agents", 0)
-    failed = stats.get("failed_agents", 0)
+    """Format agent status: show last 5 agents, running ones highlighted.
+    Example: ↑ researcher ↑ fe-dev ✓ tester ✗ builder"""
+    log = stats.get("agent_log", [])
+    total = stats.get("agent_total", 0)
 
-    if not running and completed == 0 and failed == 0:
+    if not log and total == 0:
         return ""
 
     YELLOW = '\033[1;33m'
@@ -311,29 +313,29 @@ def format_agents(stats):
 
     parts = []
 
-    # Running agents — show individually, max 5 then +N
-    if running:
-        items = list(running.values())
-        max_show = 5
-        for item in items[:max_show]:
-            label = item.get("label", "agent")
+    # Show last 5 entries (most recent last)
+    display = log[-5:]
+
+    # If there are older entries beyond what we show, indicate overflow
+    older_count = len(log) - len(display)
+    # Count how many completed/failed are NOT in display (from total)
+    hidden = total - sum(1 for e in display if e.get("status") != "running")
+    if hidden < 0:
+        hidden = 0
+
+    for entry in display:
+        label = entry.get("label", "agent")
+        status = entry.get("status", "running")
+        if status == "running":
             parts.append(f"{YELLOW}↑{NC} {label}")
-        if len(items) > max_show:
-            parts.append(f"{YELLOW}↑{NC} {DIM}+{len(items) - max_show}{NC}")
-
-    # Completed agents — merged count
-    if completed > 0:
-        if completed > 1:
-            parts.append(f"{GREEN}✓{NC} Agent{DIM}×{completed}{NC}")
+        elif status == "completed":
+            parts.append(f"{GREEN}✓{NC} {label}")
         else:
-            parts.append(f"{GREEN}✓{NC} Agent")
+            parts.append(f"{RED}✗{NC} {label}")
 
-    # Failed agents
-    if failed > 0:
-        if failed > 1:
-            parts.append(f"{RED}✗{NC} Agent{DIM}×{failed}{NC}")
-        else:
-            parts.append(f"{RED}✗{NC} Agent")
+    # Show overflow count of older completed/failed agents
+    if hidden > 0:
+        parts.append(f"{DIM}+{hidden}{NC}")
 
     return " ".join(parts)
 

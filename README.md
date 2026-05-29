@@ -41,14 +41,16 @@ GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2
 
 **Agent 状态：**
 
+始终显示最近 5 条 Agent 执行记录，运行中的高亮显示：
+
 | 格式 | 说明 |
 |------|------|
-| `↑ researcher` | 正在运行的 Agent（显示 name 或 description） |
-| `↑ +3` | 运行中的 Agent 超过 5 个时，溢出部分合并显示 |
-| `✓ Agent×3` | 已完成的 Agent 合并计数 |
-| `✗ Agent` | 失败的 Agent |
+| `↑ researcher` | 正在运行的 Agent（黄色） |
+| `✓ tester` | 已完成的 Agent（绿色） |
+| `✗ builder` | 失败的 Agent（红色） |
+| `+3` | 更早的已完成/失败 Agent 数量（不在最近 5 条内） |
 
-Agent 通过 `callId` 配对 `function_call` 和 `function_call_result` 实时追踪状态：有调用无结果即显示为运行中（↑），收到结果后转为已完成（✓）或失败（✗）。
+示例：`✓ builder ✗ tester ↑ fe-dev ↑ pm +1` — 最近 5 条中 1 个完成、1 个失败、2 个运行中，还有 1 个更早的已完成。
 
 ## 安装
 
