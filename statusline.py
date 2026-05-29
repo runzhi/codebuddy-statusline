@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 CodeBuddy Code Cost Monitor - Statusline Script (Incremental)
-Displays real-time cost, token usage, context progress, and request stats.
+Displays real-time cost, token usage, context progress, tools usage, and request stats.
 
-Uses incremental parsing for token stats from transcript, and reads
+Uses incremental parsing for token/tool stats from transcript, and reads
 context_window data directly from the statusline JSON input.
 """
 
@@ -12,6 +12,14 @@ import sys
 import os
 
 CACHE_DIR = os.path.expanduser("~/.codebuddy/cost-monitor-cache")
+
+# Tool display order and short names
+TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "WebFetch", "WebSearch"]
+TOOL_SHORT = {
+    "Bash": "Bash", "Read": "Read", "Edit": "Edit", "Write": "Write",
+    "Glob": "Glob", "Grep": "Grep", "Agent": "Agent",
+    "WebFetch": "Fetch", "WebSearch": "Search",
+}
 
 def format_tokens(n):
     if n is None:
@@ -82,10 +90,20 @@ def new_stats():
         "total_reasoning": 0,
         "total_credits": 0.0,
         "request_count": 0,
+        "tool_counts": {},
     }
 
 def add_line_to_stats(stats, data):
     """Parse a single JSONL entry and accumulate into stats."""
+    # Count tool calls
+    if data.get('type') == 'function_call':
+        name = data.get('name', '')
+        if name:
+            tc = stats.get("tool_counts", {})
+            tc[name] = tc.get(name, 0) + 1
+            stats["tool_counts"] = tc
+
+    # Token usage
     pd = data.get('providerData', {})
     if not isinstance(pd, dict):
         return
@@ -194,6 +212,36 @@ def parse_transcript_incremental(transcript_path, session_id):
 
     return stats
 
+def format_tools(tool_counts):
+    """Format tool usage like: ✓ Bash×15 | ✓ Read×2 | ✓ Edit"""
+    if not tool_counts:
+        return ""
+
+    GREEN = '\033[0;32m'
+    DIM = '\033[2m'
+    NC = '\033[0m'
+
+    # Order: known tools first, then any others
+    ordered = []
+    seen = set()
+    for name in TOOL_ORDER:
+        if name in tool_counts:
+            ordered.append((name, tool_counts[name]))
+            seen.add(name)
+    for name in sorted(tool_counts.keys()):
+        if name not in seen:
+            ordered.append((name, tool_counts[name]))
+
+    parts = []
+    for name, count in ordered:
+        short = TOOL_SHORT.get(name, name)
+        if count > 1:
+            parts.append(f"{GREEN}✓{NC} {short}{DIM}×{count}{NC}")
+        else:
+            parts.append(f"{GREEN}✓{NC} {short}")
+
+    return " ".join(parts)
+
 def main():
     try:
         input_data = json.load(sys.stdin)
@@ -214,7 +262,7 @@ def main():
     lines_added = cost.get('total_lines_added', 0) or 0
     lines_removed = cost.get('total_lines_removed', 0) or 0
 
-    # Incremental parse for token stats
+    # Incremental parse for token and tool stats
     stats = parse_transcript_incremental(transcript_path, session_id)
 
     # ANSI colors
@@ -231,7 +279,7 @@ def main():
     if model_name:
         parts.append(f"{BLUE}{model_name}{NC}")
 
-    # Context progress bar from statusline JSON
+    # Context progress bar
     used_pct = ctx.get('used_percentage')
     ctx_size = ctx.get('context_window_size', 0) or 0
     current_usage = ctx.get('current_usage', {})
@@ -253,6 +301,11 @@ def main():
         if ctx_str:
             ctx_part += f" {DIM}{ctx_str}{NC}"
         parts.append(ctx_part)
+
+    # Tools line
+    tool_str = format_tools(stats.get('tool_counts', {}))
+    if tool_str:
+        parts.append(tool_str)
 
     token_str = f"{GREEN}In:{NC}{format_tokens(stats['total_input'])}"
     token_str += f" {GREEN}Out:{NC}{format_tokens(stats['total_output'])}"
