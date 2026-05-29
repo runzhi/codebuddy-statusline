@@ -296,14 +296,14 @@ def format_tools(tool_counts):
 
     return " ".join(parts)
 
-def format_agents(stats):
-    """Format agent status: show last 5 agents, running ones highlighted.
-    Example: ↑ researcher ↑ fe-dev ✓ tester ✗ builder"""
+def format_agent_lines(stats):
+    """Format agent status as separate lines. Each agent gets its own line.
+    Returns a list of formatted lines (may be empty)."""
     log = stats.get("agent_log", [])
     total = stats.get("agent_total", 0)
 
     if not log and total == 0:
-        return ""
+        return []
 
     YELLOW = '\033[1;33m'
     GREEN = '\033[0;32m'
@@ -311,33 +311,39 @@ def format_agents(stats):
     DIM = '\033[2m'
     NC = '\033[0m'
 
-    parts = []
+    lines = []
 
-    # Show last 5 entries (most recent last)
+    # Show last 5 entries, running ones first then most recent completed/failed
     display = log[-5:]
 
-    # If there are older entries beyond what we show, indicate overflow
-    older_count = len(log) - len(display)
-    # Count how many completed/failed are NOT in display (from total)
+    # Count hidden older completed/failed
     hidden = total - sum(1 for e in display if e.get("status") != "running")
     if hidden < 0:
         hidden = 0
 
-    for entry in display:
+    # Running agents first
+    running = [e for e in display if e.get("status") == "running"]
+    finished = [e for e in display if e.get("status") != "running"]
+
+    for entry in running:
         label = entry.get("label", "agent")
-        status = entry.get("status", "running")
-        if status == "running":
-            parts.append(f"{YELLOW}↑{NC} {label}")
-        elif status == "completed":
-            parts.append(f"{GREEN}✓{NC} {label}")
-        else:
-            parts.append(f"{RED}✗{NC} {label}")
+        lines.append(f"{YELLOW}↑{NC} {label}")
 
-    # Show overflow count of older completed/failed agents
-    if hidden > 0:
-        parts.append(f"{DIM}+{hidden}{NC}")
+    # Finished agents: compact on one line
+    if finished:
+        parts = []
+        for entry in finished:
+            label = entry.get("label", "agent")
+            status = entry.get("status", "completed")
+            if status == "completed":
+                parts.append(f"{GREEN}✓{NC} {label}")
+            else:
+                parts.append(f"{RED}✗{NC} {label}")
+        if hidden > 0:
+            parts.append(f"{DIM}+{hidden}{NC}")
+        lines.append(" ".join(parts))
 
-    return " ".join(parts)
+    return lines
 
 def main():
     try:
@@ -432,21 +438,17 @@ def main():
 
     line1 = " | ".join(parts)
 
-    # Line 2: Tools + Agents
-    line2_parts = []
+    # Line 2: Tools
+    output_lines = [line1]
     tool_str = format_tools(stats.get('tool_counts', {}))
     if tool_str:
-        line2_parts.append(tool_str)
-    agent_str = format_agents(stats)
-    if agent_str:
-        line2_parts.append(agent_str)
+        output_lines.append(tool_str)
 
-    line2 = "  ".join(line2_parts)
+    # Agent lines: each running agent on its own line, finished on one line
+    agent_lines = format_agent_lines(stats)
+    output_lines.extend(agent_lines)
 
-    if line2:
-        print(f"{line1}\n{line2}")
-    else:
-        print(line1)
+    print("\n".join(output_lines))
 
 if __name__ == '__main__':
     main()

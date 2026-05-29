@@ -8,7 +8,10 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hub，在状态栏实
 
 ```
 GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.023 | Credits:67.20 | Time:45s | +156/-23
-✓ Bash×15 ✓ Read×2 ✓ Edit×2 ✓ Write  ↑ researcher ↑ fe-dev ✓ Agent×3
+✓ Bash×15 ✓ Read×2 ✓ Edit×2 ✓ Write
+↑ researcher
+↑ fe-dev
+✓ builder ✗ tester +1
 ```
 
 ### 第一行：概览
@@ -41,16 +44,21 @@ GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2
 
 **Agent 状态：**
 
-始终显示最近 5 条 Agent 执行记录，运行中的高亮显示：
+每个运行中的 Agent 独占一行，已完成/失败的合并显示：
 
 | 格式 | 说明 |
 |------|------|
-| `↑ researcher` | 正在运行的 Agent（黄色） |
+| `↑ researcher` | 正在运行的 Agent（黄色），独占一行 |
 | `✓ tester` | 已完成的 Agent（绿色） |
 | `✗ builder` | 失败的 Agent（红色） |
-| `+3` | 更早的已完成/失败 Agent 数量（不在最近 5 条内） |
+| `+3` | 更早的已完成/失败 Agent 数量 |
 
-示例：`✓ builder ✗ tester ↑ fe-dev ↑ pm +1` — 最近 5 条中 1 个完成、1 个失败、2 个运行中，还有 1 个更早的已完成。
+示例：
+```
+↑ researcher          ← 运行中，独占一行
+↑ fe-dev              ← 运行中，独占一行
+✓ builder ✗ tester +1 ← 已完成/失败合并一行
+```
 
 ## 安装
 
