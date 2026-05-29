@@ -15,6 +15,15 @@ import time
 CACHE_DIR = os.path.expanduser("~/.codebuddy/statusline-cache")
 CACHE_MAX_AGE_DAYS = 7
 
+# ANSI color codes
+CYAN = '\033[0;36m'
+GREEN = '\033[0;32m'
+YELLOW = '\033[1;33m'
+BLUE = '\033[0;34m'
+RED = '\033[0;31m'
+DIM = '\033[2m'
+NC = '\033[0m'
+
 # Tool display order and short names
 TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "WebFetch", "WebSearch"]
 TOOL_SHORT = {
@@ -57,29 +66,27 @@ def format_duration(ms):
 def make_progress_bar(pct, width=10):
     """Make a Unicode progress bar with color based on usage."""
     filled = int(pct * width)
-    partial = pct * width - filled
-    partial_idx = int(partial * 8)
+    partial_idx = int((pct * width - filled) * 8)
 
     if filled >= width:
         bar = '█' * width
     elif filled > 0:
         bar = '█' * filled
-        if filled < width:
-            partial_chars = ' ▏▎▍▌▋▊▉█'
-            if partial_idx > 0:
-                bar += partial_chars[min(partial_idx, 7)]
-                bar += ' ' * (width - filled - 1)
-            else:
-                bar += ' ' * (width - filled)
+        partial_chars = ' ▏▎▍▌▋▊▉█'
+        if partial_idx > 0:
+            bar += partial_chars[min(partial_idx, 7)]
+            bar += ' ' * (width - filled - 1)
+        else:
+            bar += ' ' * (width - filled)
     else:
         bar = ' ' * width
 
     if pct < 0.5:
-        color = '\033[0;32m'
+        color = GREEN
     elif pct < 0.8:
-        color = '\033[1;33m'
+        color = YELLOW
     else:
-        color = '\033[0;31m'
+        color = RED
 
     return bar, color
 
@@ -104,14 +111,12 @@ def add_line_to_stats(stats, data):
     if entry_type == 'function_call':
         name = data.get('name', '')
         if name:
-            tc = stats.get("tool_counts", {})
-            tc[name] = tc.get(name, 0) + 1
-            stats["tool_counts"] = tc
+            stats["tool_counts"][name] = stats["tool_counts"].get(name, 0) + 1
             if name == 'Agent':
-                stats["running_agents"] = stats.get("running_agents", 0) + 1
+                stats["running_agents"] += 1
 
     elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
-        stats["running_agents"] = max(0, stats.get("running_agents", 0) - 1)
+        stats["running_agents"] = max(0, stats["running_agents"] - 1)
 
     # Token usage
     pd = data.get('providerData', {})
@@ -127,13 +132,14 @@ def add_line_to_stats(stats, data):
     input_tokens = usage.get('inputTokens', 0) or 0
     output_tokens = usage.get('outputTokens', 0) or 0
 
-    cache_read = 0
-    for detail in (usage.get('inputTokensDetails') or []):
-        cache_read += detail.get('cached_tokens', 0) or 0
-
-    reasoning = 0
-    for detail in (usage.get('outputTokensDetails') or []):
-        reasoning += detail.get('reasoning_tokens', 0) or 0
+    cache_read = sum(
+        detail.get('cached_tokens', 0) or 0
+        for detail in (usage.get('inputTokensDetails') or [])
+    )
+    reasoning = sum(
+        detail.get('reasoning_tokens', 0) or 0
+        for detail in (usage.get('outputTokensDetails') or [])
+    )
 
     if raw_usage:
         cache_read = raw_usage.get('prompt_cache_hit_tokens', cache_read) or cache_read
@@ -228,18 +234,24 @@ def parse_transcript_incremental(transcript_path, session_id):
 
     return stats
 
+def _format_tool_entry(prefix, color, name, count=None):
+    """Format a single tool entry like '✓ Bash×3' or '↑ Agent'.
+
+    Count is shown only when > 1.
+    """
+    entry = f"{color}{prefix}{NC} {name}"
+    if count is not None and count > 1:
+        entry += f"{DIM}×{count}{NC}"
+    return entry
+
+
 def format_tools(tool_counts, running_agents=0):
     """Format tool usage like: ✓ Bash×15 ✓ Read×2 ✓ Edit
     Agent shows running count: ↑ Agent×2 or just ✓ Agent×3"""
     if not tool_counts and running_agents == 0:
         return ""
 
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    DIM = '\033[2m'
-    NC = '\033[0m'
-
-    # Order: known tools first, then any others
+    # Order: known tools first, then any others alphabetically
     ordered = []
     seen = set()
     for name in TOOL_ORDER:
@@ -254,27 +266,19 @@ def format_tools(tool_counts, running_agents=0):
     for name, count in ordered:
         short = TOOL_SHORT.get(name, name)
         if name == 'Agent' and running_agents > 0:
-            # Show running agents separately
-            if running_agents > 1:
-                parts.append(f"{YELLOW}↑{NC} Agent{DIM}×{running_agents}{NC}")
-            else:
-                parts.append(f"{YELLOW}↑{NC} Agent")
+            parts.append(_format_tool_entry("↑", YELLOW, "Agent", running_agents))
             completed = count - running_agents
-            if completed > 1:
-                parts.append(f"{GREEN}✓{NC} Agent{DIM}×{completed}{NC}")
-            elif completed == 1:
-                parts.append(f"{GREEN}✓{NC} Agent")
-        elif count > 1:
-            parts.append(f"{GREEN}✓{NC} {short}{DIM}×{count}{NC}")
+            if completed > 0:
+                parts.append(_format_tool_entry("✓", GREEN, "Agent", completed))
         else:
-            parts.append(f"{GREEN}✓{NC} {short}")
+            parts.append(_format_tool_entry("✓", GREEN, short, count))
 
     return " ".join(parts)
 
 def main():
     try:
         input_data = json.load(sys.stdin)
-    except:
+    except Exception:
         input_data = {}
 
     model = input_data.get('model', {})
@@ -294,15 +298,6 @@ def main():
     # Incremental parse for token and tool stats
     stats = parse_transcript_incremental(transcript_path, session_id)
 
-    # ANSI colors
-    CYAN = '\033[0;36m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    BLUE = '\033[0;34m'
-    RED = '\033[0;31m'
-    DIM = '\033[2m'
-    NC = '\033[0m'
-
     parts = []
 
     if model_name:
@@ -317,6 +312,7 @@ def main():
         current_tokens = current_usage.get('input_tokens', 0) or 0
 
     if used_pct is not None and used_pct > 0:
+        # used_pct can be 0-100 (percentage) or 0-1 (ratio); normalize to 0-1
         pct = min(used_pct / 100.0, 1.0) if used_pct > 1 else min(used_pct, 1.0)
         bar, bar_color = make_progress_bar(pct, width=10)
         pct_display = int(pct * 100)
@@ -331,13 +327,16 @@ def main():
             ctx_part += f" {DIM}{ctx_str}{NC}"
         parts.append(ctx_part)
 
-    token_str = f"{GREEN}In:{NC}{format_tokens(stats['total_input'])}"
-    token_str += f" {GREEN}Out:{NC}{format_tokens(stats['total_output'])}"
+    # Token usage (In/Out always shown; Cache/Think only when present)
+    token_parts = [
+        f"{GREEN}In:{NC}{format_tokens(stats['total_input'])}",
+        f"{GREEN}Out:{NC}{format_tokens(stats['total_output'])}",
+    ]
     if stats['total_cache_read'] > 0:
-        token_str += f" {DIM}Cache:{NC}{format_tokens(stats['total_cache_read'])}"
+        token_parts.append(f"{DIM}Cache:{NC}{format_tokens(stats['total_cache_read'])}")
     if stats['total_reasoning'] > 0:
-        token_str += f" {DIM}Think:{NC}{format_tokens(stats['total_reasoning'])}"
-    parts.append(token_str)
+        token_parts.append(f"{DIM}Think:{NC}{format_tokens(stats['total_reasoning'])}")
+    parts.append(" ".join(token_parts))
 
     if stats['request_count'] > 0:
         parts.append(f"{CYAN}Req:{NC}{stats['request_count']}")
@@ -362,15 +361,14 @@ def main():
     if lines_added > 0 or lines_removed > 0:
         parts.append(f"{GREEN}+{lines_added}{NC}/{RED}-{lines_removed}{NC}")
 
-    line1 = " | ".join(parts)
+    output = " | ".join(parts)
 
     # Line 2: Tools (with Agent running/completed status)
-    tool_str = format_tools(stats.get('tool_counts', {}), stats.get('running_agents', 0))
-
+    tool_str = format_tools(stats['tool_counts'], stats['running_agents'])
     if tool_str:
-        print(f"{line1}\n{tool_str}")
-    else:
-        print(line1)
+        output += f"\n{tool_str}"
+
+    print(output)
 
 if __name__ == '__main__':
     main()
