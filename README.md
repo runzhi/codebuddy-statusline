@@ -44,20 +44,22 @@ GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2
 
 **Agent 状态：**
 
-每个运行中的 Agent 独占一行，已完成/失败的合并显示：
+每个 Agent 独占一行显示，运行中的高亮：
 
 | 格式 | 说明 |
 |------|------|
-| `↑ researcher` | 正在运行的 Agent（黄色），独占一行 |
+| `↑ researcher` | 正在运行的 Agent（黄色） |
 | `✓ tester` | 已完成的 Agent（绿色） |
 | `✗ builder` | 失败的 Agent（红色） |
-| `+3` | 更早的已完成/失败 Agent 数量 |
+| `+3` | 更早的 Agent 数量 |
 
 示例：
 ```
-↑ researcher          ← 运行中，独占一行
-↑ fe-dev              ← 运行中，独占一行
-✓ builder ✗ tester +1 ← 已完成/失败合并一行
+↑ researcher    ← 运行中
+↑ fe-dev        ← 运行中
+✓ builder       ← 已完成
+✗ tester        ← 失败
++1              ← 更早的记录
 ```
 
 ## 安装

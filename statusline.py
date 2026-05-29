@@ -313,7 +313,7 @@ def format_agent_lines(stats):
 
     lines = []
 
-    # Show last 5 entries, running ones first then most recent completed/failed
+    # Show last 5 entries, most recent last
     display = log[-5:]
 
     # Count hidden older completed/failed
@@ -321,27 +321,18 @@ def format_agent_lines(stats):
     if hidden < 0:
         hidden = 0
 
-    # Running agents first
-    running = [e for e in display if e.get("status") == "running"]
-    finished = [e for e in display if e.get("status") != "running"]
-
-    for entry in running:
+    for entry in display:
         label = entry.get("label", "agent")
-        lines.append(f"{YELLOW}↑{NC} {label}")
+        status = entry.get("status", "running")
+        if status == "running":
+            lines.append(f"{YELLOW}↑{NC} {label}")
+        elif status == "completed":
+            lines.append(f"{GREEN}✓{NC} {label}")
+        else:
+            lines.append(f"{RED}✗{NC} {label}")
 
-    # Finished agents: compact on one line
-    if finished:
-        parts = []
-        for entry in finished:
-            label = entry.get("label", "agent")
-            status = entry.get("status", "completed")
-            if status == "completed":
-                parts.append(f"{GREEN}✓{NC} {label}")
-            else:
-                parts.append(f"{RED}✗{NC} {label}")
-        if hidden > 0:
-            parts.append(f"{DIM}+{hidden}{NC}")
-        lines.append(" ".join(parts))
+    if hidden > 0:
+        lines.append(f"{DIM}+{hidden}{NC}")
 
     return lines
 
