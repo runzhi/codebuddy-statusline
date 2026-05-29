@@ -302,11 +302,6 @@ def main():
             ctx_part += f" {DIM}{ctx_str}{NC}"
         parts.append(ctx_part)
 
-    # Tools line
-    tool_str = format_tools(stats.get('tool_counts', {}))
-    if tool_str:
-        parts.append(tool_str)
-
     token_str = f"{GREEN}In:{NC}{format_tokens(stats['total_input'])}"
     token_str += f" {GREEN}Out:{NC}{format_tokens(stats['total_output'])}"
     if stats['total_cache_read'] > 0:
@@ -338,7 +333,15 @@ def main():
     if lines_added > 0 or lines_removed > 0:
         parts.append(f"{GREEN}+{lines_added}{NC}/{RED}-{lines_removed}{NC}")
 
-    print(" | ".join(parts))
+    line1 = " | ".join(parts)
+
+    # Line 2: Tools
+    tool_str = format_tools(stats.get('tool_counts', {}))
+
+    if tool_str:
+        print(f"{line1}\n{tool_str}")
+    else:
+        print(line1)
 
 if __name__ == '__main__':
     main()
