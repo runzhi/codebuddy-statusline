@@ -1,0 +1,9 @@
+{
+  "name": "cost-monitor",
+  "version": "1.0.0",
+  "description": "Real-time cost and token usage monitor for CodeBuddy Code statusline, similar to Claude Hub",
+  "author": {
+    "name": "origuo"
+  },
+  "keywords": ["cost", "token", "monitor", "statusline"]
+}
