@@ -15,11 +15,11 @@ import time
 CACHE_DIR = os.path.expanduser("~/.codebuddy/statusline-cache")
 CACHE_MAX_AGE_DAYS = 7
 
-# Tool display order and short names
-TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "WebFetch", "WebSearch"]
+# Tool display order and short names (Agent tracked separately)
+TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"]
 TOOL_SHORT = {
     "Bash": "Bash", "Read": "Read", "Edit": "Edit", "Write": "Write",
-    "Glob": "Glob", "Grep": "Grep", "Agent": "Agent",
+    "Glob": "Glob", "Grep": "Grep",
     "WebFetch": "Fetch", "WebSearch": "Search",
 }
 
@@ -93,14 +93,57 @@ def new_stats():
         "total_credits": 0.0,
         "request_count": 0,
         "tool_counts": {},
+        "running_agents": {},   # callId -> {label, subagent_type}
+        "completed_agents": 0,
+        "failed_agents": 0,
     }
 
 def add_line_to_stats(stats, data):
     """Parse a single JSONL entry and accumulate into stats."""
-    # Count tool calls
-    if data.get('type') == 'function_call':
-        name = data.get('name', '')
+    entry_type = data.get('type', '')
+
+    # Track agent call/result pairing
+    if entry_type == 'function_call' and data.get('name') == 'Agent':
+        call_id = data.get('callId', '')
+        args_raw = data.get('arguments', '{}')
+        try:
+            args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+        except (json.JSONDecodeError, TypeError):
+            args = {}
+        name = args.get('name', '')
+        desc = args.get('description', '')
+        sub_type = args.get('subagent_type', '')
+        # Use name if available, otherwise description (truncated), otherwise subagent_type
         if name:
+            label = name
+        elif desc:
+            label = desc[:15] + ('…' if len(desc) > 15 else '')
+        elif sub_type:
+            label = sub_type
+        else:
+            label = 'agent'
+        if call_id:
+            ra = stats.get("running_agents", {})
+            ra[call_id] = {"label": label, "subagent_type": sub_type}
+            stats["running_agents"] = ra
+
+    elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
+        call_id = data.get('callId', '')
+        if call_id:
+            ra = stats.get("running_agents", {})
+            if call_id in ra:
+                del ra[call_id]
+                stats["running_agents"] = ra
+        status = data.get('status', '')
+        if status == 'completed':
+            stats["completed_agents"] = stats.get("completed_agents", 0) + 1
+        else:
+            stats["failed_agents"] = stats.get("failed_agents", 0) + 1
+
+    # Count tool calls (skip Agent — tracked separately above)
+    if entry_type == 'function_call':
+        name = data.get('name', '')
+        if name and name != 'Agent':
             tc = stats.get("tool_counts", {})
             tc[name] = tc.get(name, 0) + 1
             stats["tool_counts"] = tc
@@ -250,6 +293,50 @@ def format_tools(tool_counts):
 
     return " ".join(parts)
 
+def format_agents(stats):
+    """Format agent status: running agents individually, completed merged.
+    Example: ↑ researcher ↑ fe-dev ✓ Agent×3"""
+    running = stats.get("running_agents", {})
+    completed = stats.get("completed_agents", 0)
+    failed = stats.get("failed_agents", 0)
+
+    if not running and completed == 0 and failed == 0:
+        return ""
+
+    YELLOW = '\033[1;33m'
+    GREEN = '\033[0;32m'
+    RED = '\033[0;31m'
+    DIM = '\033[2m'
+    NC = '\033[0m'
+
+    parts = []
+
+    # Running agents — show individually, max 5 then +N
+    if running:
+        items = list(running.values())
+        max_show = 5
+        for item in items[:max_show]:
+            label = item.get("label", "agent")
+            parts.append(f"{YELLOW}↑{NC} {label}")
+        if len(items) > max_show:
+            parts.append(f"{YELLOW}↑{NC} {DIM}+{len(items) - max_show}{NC}")
+
+    # Completed agents — merged count
+    if completed > 0:
+        if completed > 1:
+            parts.append(f"{GREEN}✓{NC} Agent{DIM}×{completed}{NC}")
+        else:
+            parts.append(f"{GREEN}✓{NC} Agent")
+
+    # Failed agents
+    if failed > 0:
+        if failed > 1:
+            parts.append(f"{RED}✗{NC} Agent{DIM}×{failed}{NC}")
+        else:
+            parts.append(f"{RED}✗{NC} Agent")
+
+    return " ".join(parts)
+
 def main():
     try:
         input_data = json.load(sys.stdin)
@@ -343,11 +430,19 @@ def main():
 
     line1 = " | ".join(parts)
 
-    # Line 2: Tools
+    # Line 2: Tools + Agents
+    line2_parts = []
     tool_str = format_tools(stats.get('tool_counts', {}))
-
     if tool_str:
-        print(f"{line1}\n{tool_str}")
+        line2_parts.append(tool_str)
+    agent_str = format_agents(stats)
+    if agent_str:
+        line2_parts.append(agent_str)
+
+    line2 = "  ".join(line2_parts)
+
+    if line2:
+        print(f"{line1}\n{line2}")
     else:
         print(line1)
 
