@@ -1,6 +1,6 @@
-# CodeBuddy Cost Monitor
+# CodeBuddy Statusline
 
-CodeBuddy Code 的实时成本和 Token 用量监控工具，类似于 Claude Hub，在状态栏实时显示当前会话的 Context 进度条、Token 用量、工具调用、费用等信息。
+CodeBuddy Code 的实时状态栏工具，类似于 Claude Hub，在状态栏实时显示当前会话的 Context 进度条、Token 用量、工具调用、费用等信息。
 
 ## 效果预览
 
@@ -40,8 +40,8 @@ GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2
 ## 安装
 
 ```bash
-git clone https://git.woa.com/origuo/codebuddy-statusbar.git ~/.codebuddy/cost-monitor
-bash ~/.codebuddy/cost-monitor/install.sh
+git clone https://git.woa.com/origuo/codebuddy-statusbar.git ~/.codebuddy/statusline
+bash ~/.codebuddy/statusline/install.sh
 ```
 
 安装脚本会自动：
@@ -54,7 +54,7 @@ bash ~/.codebuddy/cost-monitor/install.sh
 ## 卸载
 
 ```bash
-bash ~/.codebuddy/cost-monitor/uninstall.sh
+bash ~/.codebuddy/statusline/uninstall.sh
 ```
 
 ## 版本选择
@@ -65,7 +65,7 @@ bash ~/.codebuddy/cost-monitor/uninstall.sh
 
 ```json
 "statusLine": {
-    "command": "python3 ~/.codebuddy/cost-monitor/statusline.py"
+    "command": "python3 ~/.codebuddy/statusline/statusline.py"
 }
 ```
 
@@ -75,7 +75,7 @@ bash ~/.codebuddy/cost-monitor/uninstall.sh
 
 ```json
 "statusLine": {
-    "command": "python3 ~/.codebuddy/cost-monitor/statusline-lite.py"
+    "command": "python3 ~/.codebuddy/statusline/statusline-lite.py"
 }
 ```
 
@@ -86,7 +86,7 @@ bash ~/.codebuddy/cost-monitor/uninstall.sh
 随时运行查看按模型分组的详细 Token 报告：
 
 ```bash
-python3 ~/.codebuddy/cost-monitor/cost-detail.py
+python3 ~/.codebuddy/statusline/cost-detail.py
 ```
 
 输出示例：
@@ -120,8 +120,8 @@ python3 ~/.codebuddy/cost-monitor/cost-detail.py
 - 使用**增量计算**：首次运行全量解析 transcript，后续只读取新增行
 - Context 进度条直接从 statusline JSON 的 `context_window` 字段读取，无需额外计算
 - 工具调用统计随 transcript 增量解析一起完成，无额外开销
-- 缓存上次读取位置和累计统计数据到 `~/.codebuddy/cost-monitor-cache/`
-- 按 session_id 隔离缓存，切换会话自动清理旧缓存
+- 缓存上次读取位置和累计统计数据到 `~/.codebuddy/statusline-cache/`
+- 按 session_id 隔离缓存，自动清理超过 7 天的旧缓存
 - 缓存命中后约 35ms 完成，远低于 statusline 300ms 更新间隔
 
 ## 工作原理
@@ -140,7 +140,7 @@ python3 ~/.codebuddy/cost-monitor/cost-detail.py
 ## 文件结构
 
 ```
-~/.codebuddy/cost-monitor/
+~/.codebuddy/statusline/
 ├── .codebuddy-plugin/
 │   └── plugin.json          # 插件元数据
 ├── statusline.py            # 完整版 statusline 脚本（增量解析 + Context 进度条 + 工具统计）

@@ -10,8 +10,10 @@ context_window data directly from the statusline JSON input.
 import json
 import sys
 import os
+import time
 
-CACHE_DIR = os.path.expanduser("~/.codebuddy/cost-monitor-cache")
+CACHE_DIR = os.path.expanduser("~/.codebuddy/statusline-cache")
+CACHE_MAX_AGE_DAYS = 7
 
 # Tool display order and short names
 TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "WebFetch", "WebSearch"]
@@ -160,18 +162,24 @@ def save_cache(session_id, offset, stats):
         pass
 
 def cleanup_old_caches(current_session_id):
+    """Remove cache files older than CACHE_MAX_AGE_DAYS, excluding current session."""
     if not os.path.isdir(CACHE_DIR):
         return
+    now = time.time()
+    max_age = CACHE_MAX_AGE_DAYS * 86400  # seconds
     try:
         for fname in os.listdir(CACHE_DIR):
             if not fname.endswith('.json'):
                 continue
+            fpath = os.path.join(CACHE_DIR, fname)
             sid = fname[:-5]
-            if sid != current_session_id:
-                try:
-                    os.remove(os.path.join(CACHE_DIR, fname))
-                except OSError:
-                    pass
+            if sid == current_session_id:
+                continue
+            try:
+                if now - os.path.getmtime(fpath) > max_age:
+                    os.remove(fpath)
+            except OSError:
+                pass
     except OSError:
         pass
 

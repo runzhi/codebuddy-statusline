@@ -8,11 +8,11 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-PLUGIN_DIR="$HOME/.codebuddy/cost-monitor"
+PLUGIN_DIR="$HOME/.codebuddy/statusline"
 SETTINGS_FILE="$HOME/.codebuddy/settings.json"
 REPO_URL="${1:-https://git.woa.com/origuo/codebuddy-statusbar.git}"
 
-echo -e "${CYAN}=== CodeBuddy Cost Monitor Installer ===${NC}"
+echo -e "${CYAN}=== CodeBuddy Statusline Installer ===${NC}"
 echo ""
 
 # 1. Check dependencies
@@ -43,7 +43,7 @@ echo -e "  ${GREEN}Done${NC}"
 # 3. Create cache directory
 echo ""
 echo -e "${YELLOW}[3/4]${NC} Setting up cache directory..."
-mkdir -p "$HOME/.codebuddy/cost-monitor-cache"
+mkdir -p "$HOME/.codebuddy/statusline-cache"
 echo -e "  ${GREEN}Done${NC}"
 
 # 4. Configure statusline in settings.json
@@ -57,7 +57,7 @@ if [ ! -f "$SETTINGS_FILE" ]; then
 {
   "statusLine": {
     "type": "command",
-    "command": "python3 ~/.codebuddy/cost-monitor/statusline.py",
+    "command": "python3 ~/.codebuddy/statusline/statusline.py",
     "padding": 0
   }
 }
@@ -71,7 +71,7 @@ with open('$SETTINGS_FILE') as f:
     s = json.load(f)
 sl = s.get('statusLine', {})
 cmd = sl.get('command', '')
-if 'cost-monitor/statusline' in cmd:
+if 'statusline/statusline' in cmd or 'cost-monitor/statusline' in cmd:
     sys.exit(0)  # already configured
 sys.exit(1)
 " 2>/dev/null; then
@@ -87,7 +87,7 @@ with open(path) as f:
 
 settings['statusLine'] = {
     'type': 'command',
-    'command': 'python3 ~/.codebuddy/cost-monitor/statusline.py',
+    'command': 'python3 ~/.codebuddy/statusline/statusline.py',
     'padding': 0
 }
 
@@ -106,14 +106,15 @@ echo "Restart your CodeBuddy Code session to see the statusline."
 echo ""
 echo -e "${CYAN}What you'll see:${NC}"
 echo "  GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K | Req:29 | Cost:\$0.023 | Credits:67.20 | Time:45s | +156/-23"
+echo "  ✓ Bash×15 ✓ Read×2 ✓ Edit×2 ✓ Write"
 echo ""
 echo -e "${CYAN}Options:${NC}"
 echo "  - Switch to lite version (faster, less detail):"
 echo "    Edit statusLine.command in settings.json to:"
-echo "    python3 ~/.codebuddy/cost-monitor/statusline-lite.py"
+echo "    python3 ~/.codebuddy/statusline/statusline-lite.py"
 echo ""
 echo "  - View detailed report anytime:"
-echo "    python3 ~/.codebuddy/cost-monitor/cost-detail.py"
+echo "    python3 ~/.codebuddy/statusline/cost-detail.py"
 echo ""
 echo -e "${CYAN}Uninstall:${NC}"
 echo "  bash $PLUGIN_DIR/uninstall.sh"
