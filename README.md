@@ -1,14 +1,17 @@
 # CodeBuddy Cost Monitor
 
-CodeBuddy Code 的实时成本和 Token 用量监控工具，类似于 Claude Hub，在状态栏实时显示当前会话的费用、Token 用量、Context 进度条、请求数等信息。
+CodeBuddy Code 的实时成本和 Token 用量监控工具，类似于 Claude Hub，在状态栏实时显示当前会话的 Context 进度条、Token 用量、工具调用、费用等信息。
 
 ## 效果预览
 
-状态栏实时显示：
+状态栏分两行实时显示：
 
 ```
 GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.023 | Credits:67.20 | Time:45s | +156/-23
+✓ Bash×15 ✓ Read×2 ✓ Edit×2 ✓ Write
 ```
+
+### 第一行：概览
 
 | 字段 | 说明 |
 |------|------|
@@ -25,16 +28,26 @@ GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2
 | `Time:45s` | 会话耗时 |
 | `+156/-23` | 代码增删行数 |
 
-## 快速安装
+### 第二行：工具调用
+
+| 格式 | 说明 |
+|------|------|
+| `✓ Bash×15` | 已调用 15 次 |
+| `✓ Write` | 已调用 1 次（不显示 ×1） |
+
+按固定顺序排列：Bash → Read → Edit → Write → Glob → Grep → Agent → Fetch → Search，其他工具自动追加。
+
+## 安装
 
 ```bash
-# 方式一：从 Git 仓库安装
 git clone https://git.woa.com/origuo/codebuddy-statusbar.git ~/.codebuddy/cost-monitor
 bash ~/.codebuddy/cost-monitor/install.sh
-
-# 方式二：一键安装
-curl -fsSL https://git.woa.com/origuo/codebuddy-statusbar/-/raw/master/install.sh | bash
 ```
+
+安装脚本会自动：
+1. 克隆/更新插件文件
+2. 创建缓存目录
+3. 在 `~/.codebuddy/settings.json` 中配置 `statusLine`（已有则跳过）
 
 安装后重启 CodeBuddy Code 会话即可生效。
 
@@ -48,7 +61,7 @@ bash ~/.codebuddy/cost-monitor/uninstall.sh
 
 ### 完整版（默认）
 
-显示 Context 进度条、Token 用量、Cache、Reasoning、Credits 等详细信息。通过增量解析会话 transcript 文件获取 Token 数据，Context 进度直接读取 CodeBuddy 提供的 `context_window` 字段。
+双行显示：第一行为 Context 进度条、Token 用量、费用等；第二行为工具调用统计。通过增量解析会话 transcript 文件获取 Token 和工具数据，Context 进度直接读取 CodeBuddy 提供的 `context_window` 字段。
 
 ```json
 "statusLine": {
@@ -58,7 +71,7 @@ bash ~/.codebuddy/cost-monitor/uninstall.sh
 
 ### 轻量版
 
-只使用 statusline 自带的 `cost` 和 `context_window` 字段，不解析 transcript 文件，更快但信息较少（仅显示 Context 进度、Cost、Time、代码变更）。
+单行显示，只使用 statusline 自带的 `cost` 和 `context_window` 字段，不解析 transcript 文件，更快但信息较少（仅显示 Cost、Time、代码变更）。
 
 ```json
 "statusLine": {
@@ -106,6 +119,7 @@ python3 ~/.codebuddy/cost-monitor/cost-detail.py
 
 - 使用**增量计算**：首次运行全量解析 transcript，后续只读取新增行
 - Context 进度条直接从 statusline JSON 的 `context_window` 字段读取，无需额外计算
+- 工具调用统计随 transcript 增量解析一起完成，无额外开销
 - 缓存上次读取位置和累计统计数据到 `~/.codebuddy/cost-monitor-cache/`
 - 按 session_id 隔离缓存，切换会话自动清理旧缓存
 - 缓存命中后约 35ms 完成，远低于 statusline 300ms 更新间隔
@@ -114,7 +128,7 @@ python3 ~/.codebuddy/cost-monitor/cost-detail.py
 
 1. CodeBuddy Code 每 300ms 通过 stdin 向 statusline 脚本发送 JSON 数据，包含 `model`、`cost`、`context_window`、`transcript_path`、`session_id` 等字段
 2. `context_window` 字段提供 `used_percentage`、`context_window_size`、`current_usage`，直接用于渲染进度条
-3. 完整版脚本额外读取 `transcript_path` 指向的 JSONL 文件，增量解析 `providerData.rawUsage` 获取 Token 明细
+3. 完整版脚本增量读取 `transcript_path` 指向的 JSONL 文件，解析 `function_call` 条目统计工具调用，解析 `providerData.rawUsage` 获取 Token 明细
 4. 轻量版脚本仅使用 statusline JSON 自带的 `cost` 和 `context_window` 字段，不读取文件
 5. 两种版本都支持 ANSI 颜色码，在终端中高亮显示
 
@@ -129,7 +143,7 @@ python3 ~/.codebuddy/cost-monitor/cost-detail.py
 ~/.codebuddy/cost-monitor/
 ├── .codebuddy-plugin/
 │   └── plugin.json          # 插件元数据
-├── statusline.py            # 完整版 statusline 脚本（增量解析 + Context 进度条）
+├── statusline.py            # 完整版 statusline 脚本（增量解析 + Context 进度条 + 工具统计）
 ├── statusline-lite.py       # 轻量版 statusline 脚本
 ├── cost-detail.py           # 详细报告脚本
 ├── commands/
