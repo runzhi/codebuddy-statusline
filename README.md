@@ -1,6 +1,6 @@
 # CodeBuddy Statusline
 
-CodeBuddy Code 的实时状态栏工具，类似于 Claude Hub，在状态栏实时显示当前会话的 Context 进度条、Token 用量、工具调用、费用等信息。
+CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实时显示当前会话的 Context 进度条、Token 用量、工具调用、费用等信息。
 
 ## 效果预览
 
