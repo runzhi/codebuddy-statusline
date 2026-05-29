@@ -8,7 +8,7 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hub，在状态栏实
 
 ```
 GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.023 | Credits:67.20 | Time:45s | +156/-23
-✓ Bash×15 ✓ Read×2 ✓ Edit×2 ✓ Write
+✓ Bash×15 ✓ Read×2 ✓ Edit×2 ✓ Write  ↑ researcher ↑ fe-dev ✓ Agent×3
 ```
 
 ### 第一行：概览
@@ -28,14 +28,27 @@ GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K Cache:2
 | `Time:45s` | 会话耗时 |
 | `+156/-23` | 代码增删行数 |
 
-### 第二行：工具调用
+### 第二行：工具调用 & Agent 状态
+
+**工具调用：**
 
 | 格式 | 说明 |
 |------|------|
 | `✓ Bash×15` | 已调用 15 次 |
 | `✓ Write` | 已调用 1 次（不显示 ×1） |
 
-按固定顺序排列：Bash → Read → Edit → Write → Glob → Grep → Agent → Fetch → Search，其他工具自动追加。
+按固定顺序排列：Bash → Read → Edit → Write → Glob → Grep → Fetch → Search，其他工具自动追加。
+
+**Agent 状态：**
+
+| 格式 | 说明 |
+|------|------|
+| `↑ researcher` | 正在运行的 Agent（显示 name 或 description） |
+| `↑ +3` | 运行中的 Agent 超过 5 个时，溢出部分合并显示 |
+| `✓ Agent×3` | 已完成的 Agent 合并计数 |
+| `✗ Agent` | 失败的 Agent |
+
+Agent 通过 `callId` 配对 `function_call` 和 `function_call_result` 实时追踪状态：有调用无结果即显示为运行中（↑），收到结果后转为已完成（✓）或失败（✗）。
 
 ## 安装
 
