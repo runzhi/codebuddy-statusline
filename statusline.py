@@ -15,11 +15,11 @@ import time
 CACHE_DIR = os.path.expanduser("~/.codebuddy/statusline-cache")
 CACHE_MAX_AGE_DAYS = 7
 
-# Tool display order and short names (Agent tracked separately)
-TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"]
+# Tool display order and short names
+TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "WebFetch", "WebSearch"]
 TOOL_SHORT = {
     "Bash": "Bash", "Read": "Read", "Edit": "Edit", "Write": "Write",
-    "Glob": "Glob", "Grep": "Grep",
+    "Glob": "Glob", "Grep": "Grep", "Agent": "Agent",
     "WebFetch": "Fetch", "WebSearch": "Search",
 }
 
@@ -93,63 +93,25 @@ def new_stats():
         "total_credits": 0.0,
         "request_count": 0,
         "tool_counts": {},
-        "agent_log": [],        # [{callId, label, status}, ...] recent entries
-        "agent_total": 0,       # total completed + failed count (for overflow)
+        "running_agents": 0,
     }
-
-AGENT_LOG_MAX = 20  # keep last N in cache (display shows fewer)
 
 def add_line_to_stats(stats, data):
     """Parse a single JSONL entry and accumulate into stats."""
     entry_type = data.get('type', '')
 
-    # Track agent call/result pairing
-    if entry_type == 'function_call' and data.get('name') == 'Agent':
-        call_id = data.get('callId', '')
-        args_raw = data.get('arguments', '{}')
-        try:
-            args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-        except (json.JSONDecodeError, TypeError):
-            args = {}
-        name = args.get('name', '')
-        desc = args.get('description', '')
-        sub_type = args.get('subagent_type', '')
-        # Use name if available, otherwise description (truncated), otherwise subagent_type
-        if name:
-            label = name
-        elif desc:
-            label = desc[:15] + ('…' if len(desc) > 15 else '')
-        elif sub_type:
-            label = sub_type
-        else:
-            label = 'agent'
-        if call_id:
-            log = stats.get("agent_log", [])
-            log.append({"callId": call_id, "label": label, "status": "running"})
-            # Trim to prevent unbounded growth
-            if len(log) > AGENT_LOG_MAX:
-                log = log[-AGENT_LOG_MAX:]
-            stats["agent_log"] = log
-
-    elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
-        call_id = data.get('callId', '')
-        result_status = data.get('status', 'completed')
-        if call_id:
-            log = stats.get("agent_log", [])
-            for entry in reversed(log):
-                if entry.get("callId") == call_id:
-                    entry["status"] = "completed" if result_status == "completed" else "failed"
-                    break
-            stats["agent_log"] = log
-        stats["agent_total"] = stats.get("agent_total", 0) + 1
-
-    # Count tool calls (skip Agent — tracked separately above)
+    # Count tool calls
     if entry_type == 'function_call':
         name = data.get('name', '')
-        if name and name != 'Agent':
+        if name:
             tc = stats.get("tool_counts", {})
             tc[name] = tc.get(name, 0) + 1
             stats["tool_counts"] = tc
+            if name == 'Agent':
+                stats["running_agents"] = stats.get("running_agents", 0) + 1
+
+    elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
+        stats["running_agents"] = max(0, stats.get("running_agents", 0) - 1)
 
     # Token usage
     pd = data.get('providerData', {})
@@ -266,12 +228,14 @@ def parse_transcript_incremental(transcript_path, session_id):
 
     return stats
 
-def format_tools(tool_counts):
-    """Format tool usage like: ✓ Bash×15 | ✓ Read×2 | ✓ Edit"""
-    if not tool_counts:
+def format_tools(tool_counts, running_agents=0):
+    """Format tool usage like: ✓ Bash×15 ✓ Read×2 ✓ Edit
+    Agent shows running count: ↑ Agent×2 or just ✓ Agent×3"""
+    if not tool_counts and running_agents == 0:
         return ""
 
     GREEN = '\033[0;32m'
+    YELLOW = '\033[1;33m'
     DIM = '\033[2m'
     NC = '\033[0m'
 
@@ -289,52 +253,23 @@ def format_tools(tool_counts):
     parts = []
     for name, count in ordered:
         short = TOOL_SHORT.get(name, name)
-        if count > 1:
+        if name == 'Agent' and running_agents > 0:
+            # Show running agents separately
+            if running_agents > 1:
+                parts.append(f"{YELLOW}↑{NC} Agent{DIM}×{running_agents}{NC}")
+            else:
+                parts.append(f"{YELLOW}↑{NC} Agent")
+            completed = count - running_agents
+            if completed > 1:
+                parts.append(f"{GREEN}✓{NC} Agent{DIM}×{completed}{NC}")
+            elif completed == 1:
+                parts.append(f"{GREEN}✓{NC} Agent")
+        elif count > 1:
             parts.append(f"{GREEN}✓{NC} {short}{DIM}×{count}{NC}")
         else:
             parts.append(f"{GREEN}✓{NC} {short}")
 
     return " ".join(parts)
-
-def format_agent_lines(stats):
-    """Format agent status as separate lines. Each agent gets its own line.
-    Returns a list of formatted lines (may be empty)."""
-    log = stats.get("agent_log", [])
-    total = stats.get("agent_total", 0)
-
-    if not log and total == 0:
-        return []
-
-    YELLOW = '\033[1;33m'
-    GREEN = '\033[0;32m'
-    RED = '\033[0;31m'
-    DIM = '\033[2m'
-    NC = '\033[0m'
-
-    lines = []
-
-    # Show last 5 entries, most recent last
-    display = log[-5:]
-
-    # Count hidden older completed/failed
-    hidden = total - sum(1 for e in display if e.get("status") != "running")
-    if hidden < 0:
-        hidden = 0
-
-    for entry in display:
-        label = entry.get("label", "agent")
-        status = entry.get("status", "running")
-        if status == "running":
-            lines.append(f"{YELLOW}↑{NC} {label}")
-        elif status == "completed":
-            lines.append(f"{GREEN}✓{NC} {label}")
-        else:
-            lines.append(f"{RED}✗{NC} {label}")
-
-    if hidden > 0:
-        lines.append(f"{DIM}+{hidden}{NC}")
-
-    return lines
 
 def main():
     try:
@@ -429,17 +364,13 @@ def main():
 
     line1 = " | ".join(parts)
 
-    # Line 2: Tools
-    output_lines = [line1]
-    tool_str = format_tools(stats.get('tool_counts', {}))
+    # Line 2: Tools (with Agent running/completed status)
+    tool_str = format_tools(stats.get('tool_counts', {}), stats.get('running_agents', 0))
+
     if tool_str:
-        output_lines.append(tool_str)
-
-    # Agent lines: each running agent on its own line, finished on one line
-    agent_lines = format_agent_lines(stats)
-    output_lines.extend(agent_lines)
-
-    print("\n".join(output_lines))
+        print(f"{line1}\n{tool_str}")
+    else:
+        print(line1)
 
 if __name__ == '__main__':
     main()
