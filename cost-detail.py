@@ -69,65 +69,76 @@ def parse_transcript(transcript_path):
     if not transcript_path or not os.path.exists(transcript_path):
         return stats
 
-    with open(transcript_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            try:
-                data = json.loads(line)
-                pd = data.get('providerData', {})
-                if not isinstance(pd, dict):
+    # Collect all transcript paths (main + sub-agents)
+    transcript_paths = [transcript_path]
+    if transcript_path.endswith('.jsonl'):
+        session_dir = transcript_path[:-6]
+        subagents_dir = os.path.join(session_dir, 'subagents')
+        if os.path.isdir(subagents_dir):
+            for fname in os.listdir(subagents_dir):
+                if fname.endswith('.jsonl'):
+                    transcript_paths.append(os.path.join(subagents_dir, fname))
+
+    for tp in transcript_paths:
+        with open(tp, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    data = json.loads(line)
+                    pd = data.get('providerData', {})
+                    if not isinstance(pd, dict):
+                        continue
+
+                    usage = pd.get('usage', {})
+                    raw_usage = pd.get('rawUsage', {})
+                    model = pd.get('requestModelName') or pd.get('requestModelId') or pd.get('model', 'unknown')
+
+                    if not usage and not raw_usage:
+                        continue
+
+                    input_tokens = usage.get('inputTokens', 0) or 0
+                    output_tokens = usage.get('outputTokens', 0) or 0
+
+                    cache_read = 0
+                    for detail in (usage.get('inputTokensDetails') or []):
+                        cache_read += detail.get('cached_tokens', 0) or 0
+
+                    reasoning = 0
+                    for detail in (usage.get('outputTokensDetails') or []):
+                        reasoning += detail.get('reasoning_tokens', 0) or 0
+
+                    if raw_usage:
+                        cache_read = raw_usage.get('prompt_cache_hit_tokens', cache_read) or cache_read
+                        cache_write = raw_usage.get('cache_creation_input_tokens', 0) or 0
+                        credit = raw_usage.get('credit', 0) or 0
+                    else:
+                        cache_write = 0
+                        credit = 0
+
+                    if input_tokens > 0 or output_tokens > 0:
+                        stats["total_input"] += input_tokens
+                        stats["total_output"] += output_tokens
+                        stats["total_cache_read"] += cache_read
+                        stats["total_cache_write"] += cache_write
+                        stats["total_reasoning"] += reasoning
+                        stats["total_credits"] += credit
+                        stats["request_count"] += 1
+
+                        if model not in stats["by_model"]:
+                            stats["by_model"][model] = {
+                                "input": 0, "output": 0, "cache_read": 0,
+                                "cache_write": 0, "reasoning": 0, "requests": 0, "credits": 0.0
+                            }
+                        m = stats["by_model"][model]
+                        m["input"] += input_tokens
+                        m["output"] += output_tokens
+                        m["cache_read"] += cache_read
+                        m["cache_write"] += cache_write
+                        m["reasoning"] += reasoning
+                        m["requests"] += 1
+                        m["credits"] += credit
+
+                except (json.JSONDecodeError, KeyError, TypeError):
                     continue
-
-                usage = pd.get('usage', {})
-                raw_usage = pd.get('rawUsage', {})
-                model = pd.get('requestModelName') or pd.get('requestModelId') or pd.get('model', 'unknown')
-
-                if not usage and not raw_usage:
-                    continue
-
-                input_tokens = usage.get('inputTokens', 0) or 0
-                output_tokens = usage.get('outputTokens', 0) or 0
-
-                cache_read = 0
-                for detail in (usage.get('inputTokensDetails') or []):
-                    cache_read += detail.get('cached_tokens', 0) or 0
-
-                reasoning = 0
-                for detail in (usage.get('outputTokensDetails') or []):
-                    reasoning += detail.get('reasoning_tokens', 0) or 0
-
-                if raw_usage:
-                    cache_read = raw_usage.get('prompt_cache_hit_tokens', cache_read) or cache_read
-                    cache_write = raw_usage.get('cache_creation_input_tokens', 0) or 0
-                    credit = raw_usage.get('credit', 0) or 0
-                else:
-                    cache_write = 0
-                    credit = 0
-
-                if input_tokens > 0 or output_tokens > 0:
-                    stats["total_input"] += input_tokens
-                    stats["total_output"] += output_tokens
-                    stats["total_cache_read"] += cache_read
-                    stats["total_cache_write"] += cache_write
-                    stats["total_reasoning"] += reasoning
-                    stats["total_credits"] += credit
-                    stats["request_count"] += 1
-
-                    if model not in stats["by_model"]:
-                        stats["by_model"][model] = {
-                            "input": 0, "output": 0, "cache_read": 0,
-                            "cache_write": 0, "reasoning": 0, "requests": 0, "credits": 0.0
-                        }
-                    m = stats["by_model"][model]
-                    m["input"] += input_tokens
-                    m["output"] += output_tokens
-                    m["cache_read"] += cache_read
-                    m["cache_write"] += cache_write
-                    m["reasoning"] += reasoning
-                    m["requests"] += 1
-                    m["credits"] += credit
-
-            except (json.JSONDecodeError, KeyError, TypeError):
-                continue
 
     return stats
 

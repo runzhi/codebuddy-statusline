@@ -15,6 +15,11 @@ import time
 CACHE_DIR = os.path.expanduser("~/.codebuddy/statusline-cache")
 CACHE_MAX_AGE_DAYS = 7
 
+# Auto-update: marker file used to throttle git-pull to once per day
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+UPDATE_MARKER = os.path.join(CACHE_DIR, ".last-update-check")
+UPDATE_INTERVAL_SECONDS = 86400  # once per day
+
 # ANSI color codes
 CYAN = '\033[0;36m'
 GREEN = '\033[0;32m'
@@ -116,7 +121,7 @@ def add_line_to_stats(stats, data):
                 stats["running_agents"] += 1
 
     elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
-        stats["running_agents"] = max(0, stats["running_agents"] - 1)
+        stats["running_agents"] -= 1
 
     # Token usage
     pd = data.get('providerData', {})
@@ -159,6 +164,17 @@ def add_line_to_stats(stats, data):
         stats["request_count"] += 1
 
 def load_cache(session_id):
+    """Load the unified cache for a session.
+
+    The unified cache file ({session_id}.json) contains:
+        {
+            "stats": {...accumulated stats...},
+            "main_offset": <int>,
+            "sub_offsets": {"agent-abc": <int>, ...}
+        }
+
+    Returns the parsed dict, or None if the file is missing/corrupt.
+    """
     cache_path = os.path.join(CACHE_DIR, f"{session_id}.json")
     try:
         with open(cache_path, 'r') as f:
@@ -166,14 +182,118 @@ def load_cache(session_id):
     except (IOError, json.JSONDecodeError, KeyError):
         return None
 
-def save_cache(session_id, offset, stats):
+def save_cache(session_id, stats, main_offset, sub_offsets):
+    """Save the unified cache for a session.
+
+    Args:
+        session_id: Session identifier (used as cache filename).
+        stats: Accumulated stats dict.
+        main_offset: Byte offset into the main transcript.
+        sub_offsets: Dict mapping sub-agent name to byte offset.
+    """
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_path = os.path.join(CACHE_DIR, f"{session_id}.json")
     try:
         with open(cache_path, 'w') as f:
-            json.dump({"offset": offset, "stats": stats}, f)
+            json.dump({
+                "stats": stats,
+                "main_offset": main_offset,
+                "sub_offsets": sub_offsets,
+            }, f)
     except IOError:
         pass
+
+def maybe_auto_update():
+    """Try to git-pull the plugin repo at most once per day.
+
+    Throttles via a marker file (mtime). The git pull runs in a fully detached
+    background process so it never blocks the statusline. Failures are silent:
+    no network, no git, not a git repo, etc. all just no-op.
+
+    Design choices:
+    - Daemonized via double-fork so the parent (statusline) returns immediately
+      without waiting for git. The grandchild is reparented to PID 1.
+    - All git output is discarded (we don't surface errors).
+    - Marker file is written BEFORE the pull starts so even if git hangs or
+      fails, we still wait a full day before retrying.
+    - Uses --ff-only to avoid merge commits or conflicts; if local changes
+      exist, the pull simply fails harmlessly.
+    """
+    # Quick check: is the plugin directory a git repo?
+    git_dir = os.path.join(PLUGIN_DIR, ".git")
+    if not os.path.isdir(git_dir):
+        return
+
+    # Throttle: only attempt once per UPDATE_INTERVAL_SECONDS
+    try:
+        last_check = os.path.getmtime(UPDATE_MARKER)
+        if time.time() - last_check < UPDATE_INTERVAL_SECONDS:
+            return
+    except OSError:
+        pass  # marker doesn't exist yet — proceed
+
+    # Touch the marker first so a hanging git doesn't keep us retrying
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(UPDATE_MARKER, 'w') as f:
+            f.write(str(int(time.time())))
+    except OSError:
+        return  # can't write marker — skip update to avoid retry storm
+
+    # Double-fork to fully detach the git process from the statusline.
+    # The first child forks again and exits; the grandchild does the work
+    # and is adopted by init (PID 1), so we don't leave zombies.
+    try:
+        pid = os.fork()
+    except OSError:
+        return  # fork failed — give up
+
+    if pid != 0:
+        # Parent: reap the first child to avoid a zombie, then return immediately.
+        try:
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+        return
+
+    # First child: detach from parent's session and fork again
+    try:
+        os.setsid()
+    except OSError:
+        os._exit(0)
+
+    try:
+        pid2 = os.fork()
+    except OSError:
+        os._exit(0)
+
+    if pid2 != 0:
+        # First child exits immediately; grandchild is reparented to init.
+        os._exit(0)
+
+    # Grandchild: actually run the git pull.
+    try:
+        # Redirect stdin/stdout/stderr to /dev/null so git can't write anywhere.
+        devnull = os.open(os.devnull, os.O_RDWR)
+        os.dup2(devnull, 0)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        os.close(devnull)
+    except OSError:
+        os._exit(0)
+
+    try:
+        import subprocess
+        subprocess.run(
+            ["git", "-C", PLUGIN_DIR, "pull", "--ff-only", "--quiet"],
+            timeout=30,
+            check=False,
+        )
+    except Exception:
+        pass
+    finally:
+        os._exit(0)
+
 
 def cleanup_old_caches(current_session_id):
     """Remove cache files older than CACHE_MAX_AGE_DAYS, excluding current session."""
@@ -186,8 +306,10 @@ def cleanup_old_caches(current_session_id):
             if not fname.endswith('.json'):
                 continue
             fpath = os.path.join(CACHE_DIR, fname)
-            sid = fname[:-5]
-            if sid == current_session_id:
+            key = fname[:-5]  # strip .json
+            # Protect current session's cache (and any legacy split caches
+            # that started with the session_id prefix)
+            if key == current_session_id or key.startswith(current_session_id + "_"):
                 continue
             try:
                 if now - os.path.getmtime(fpath) > max_age:
@@ -197,40 +319,191 @@ def cleanup_old_caches(current_session_id):
     except OSError:
         pass
 
-def parse_transcript_incremental(transcript_path, session_id):
-    """Parse transcript incrementally, only reading new lines since last run."""
-    stats = new_stats()
-    start_offset = 0
+def _parse_single_transcript_incremental(transcript_path, start_offset):
+    """Parse a single transcript file incrementally from start_offset.
 
-    if not transcript_path or not os.path.exists(transcript_path):
-        return stats
+    Handles file truncation: if start_offset is beyond the current file size
+    (e.g., file was rewritten or truncated), re-parses from offset 0.
 
-    cache = load_cache(session_id)
-    if cache:
-        start_offset = cache["offset"]
-        stats = cache["stats"]
+    Returns:
+        A tuple of (delta_stats, new_offset, truncated, has_new_data) where:
+        - delta_stats: stats dict with new token/tool data from this read
+        - new_offset: byte position after the last line read (0 on error)
+        - truncated: True if the file was detected as truncated (caller
+          should reset accumulated stats since delta_stats is a full
+          re-parse from offset 0, not an incremental delta)
+        - has_new_data: True if any data was actually read from the file.
+    """
+    new_stats_data = new_stats()
 
+    if not transcript_path:
+        return new_stats_data, 0, False, False
+
+    # Validate offset type to handle corrupted cache (e.g., {"offset": "abc"})
+    if not isinstance(start_offset, (int, float)):
+        start_offset = 0
+
+    truncated = False
     try:
+        # Use os.path.getsize as the existence check (single stat call).
+        # If the file doesn't exist, raises OSError caught below.
+        file_size = os.path.getsize(transcript_path)
+
+        # Fast path: file size unchanged since last read — nothing new.
+        # Skips the open()/seek()/iterate() syscalls entirely. This is the
+        # common case in steady state for sub-agents that have completed.
+        if start_offset == file_size and start_offset > 0:
+            return new_stats_data, start_offset, False, False
+
+        # Detect truncation: cached offset is past current EOF
+        if start_offset > file_size:
+            start_offset = 0
+            truncated = True
+
         with open(transcript_path, 'r', encoding='utf-8') as f:
-            f.seek(start_offset)
-            new_data_found = False
+            if start_offset > 0:
+                f.seek(start_offset)
+            has_new_data = False
             for line in f:
+                has_new_data = True
+                # Cheap string pre-filter: skip lines that don't contain any
+                # of the markers we care about. Most transcript lines are
+                # assistant text messages or tool results we don't track.
+                # Avoids the json.loads cost for ~75% of lines on cold parses.
+                if ('function_call' not in line
+                        and 'providerData' not in line):
+                    continue
                 try:
                     data = json.loads(line)
-                    add_line_to_stats(stats, data)
-                    new_data_found = True
+                    add_line_to_stats(new_stats_data, data)
                 except (json.JSONDecodeError, KeyError, TypeError):
                     continue
 
             new_offset = f.tell()
 
-        if new_data_found or start_offset == 0:
-            save_cache(session_id, new_offset, stats)
-
-        cleanup_old_caches(session_id)
+        return new_stats_data, new_offset, truncated, has_new_data
 
     except (IOError, OSError):
-        pass
+        return new_stats_data, 0, False, False
+
+
+def _merge_delta(stats, delta, skip_keys=None):
+    """Merge a delta stats dict into stats, adding numeric values and merging dicts."""
+    skip_keys = skip_keys or set()
+    for key in stats:
+        if key in skip_keys:
+            continue
+        if isinstance(stats[key], (int, float)):
+            stats[key] += delta[key]
+        elif isinstance(stats[key], dict):
+            for k, v in delta[key].items():
+                stats[key][k] = stats[key].get(k, 0) + v
+
+
+def parse_transcript_incremental(transcript_path, session_id):
+    """Parse transcript incrementally, only reading new lines since last run.
+
+    Also scans subagents/ directory for child agent transcripts and merges
+    their token/tool stats into the total.
+
+    All cache state (accumulated stats, main offset, sub-agent offsets) is
+    stored in a single unified cache file per session, reducing I/O from
+    2+N file opens to 1 in steady state.
+
+    Note: running_agents is a gauge (not a counter), computed only from the
+    main transcript's delta. Sub-agent deltas may contain their own Agent
+    calls, but those don't affect the top-level running count.
+
+    Skip-write: if no new data was found, skip writing the cache entirely.
+    This avoids unnecessary I/O in steady state and eliminates the crash
+    window for over-counts when nothing changed.
+
+    Truncation handling: if the main transcript was truncated, the accumulated
+    stats are discarded and replaced with a full re-parse. If a sub-agent
+    was truncated, its delta is merged but a flag is set so the cache is
+    still written (preventing a stuck state).
+    """
+    stats = new_stats()
+
+    if not transcript_path:
+        return stats
+
+    # Load unified cache (single file open in steady state)
+    cache = load_cache(session_id)
+    previous_running_agents = 0
+    main_offset = 0
+    sub_offsets = {}
+    if cache:
+        if "stats" in cache and isinstance(cache["stats"], dict):
+            stats = cache["stats"]
+            previous_running_agents = stats.get("running_agents", 0)
+        if "main_offset" in cache and isinstance(cache["main_offset"], (int, float)):
+            main_offset = cache["main_offset"]
+        if "sub_offsets" in cache and isinstance(cache["sub_offsets"], dict):
+            sub_offsets = dict(cache["sub_offsets"])
+
+    any_new_data = False
+    any_truncated = False
+
+    # Parse main transcript for new data
+    main_delta, main_new_offset, main_truncated, main_has_new_data = (
+        _parse_single_transcript_incremental(transcript_path, main_offset)
+    )
+    if main_truncated:
+        # Main was truncated: discard cached stats; main_delta is a full re-parse
+        any_truncated = True
+        stats = main_delta
+        previous_running_agents = 0
+        sub_offsets = {}  # also reset sub-offsets — full re-parse implies fresh start
+        stats["running_agents"] = max(0, stats["running_agents"])
+    else:
+        _merge_delta(stats, main_delta, skip_keys={"running_agents"})
+        # running_agents is a gauge — compute from previous + delta, clamped to >= 0
+        stats["running_agents"] = max(0, main_delta["running_agents"] + previous_running_agents)
+    if main_has_new_data:
+        any_new_data = True
+    if main_new_offset > 0:
+        main_offset = main_new_offset
+
+    # Parse sub-agent transcripts
+    # Directory structure: {session_id}.jsonl (main) and {session_id}/subagents/ (sub-agents)
+    if transcript_path.endswith('.jsonl'):
+        session_dir = transcript_path[:-6]  # strip .jsonl
+    else:
+        session_dir = transcript_path
+    subagents_dir = os.path.join(session_dir, 'subagents')
+    if os.path.isdir(subagents_dir):
+        try:
+            for fname in os.listdir(subagents_dir):
+                if not fname.endswith('.jsonl'):
+                    continue
+                sub_path = os.path.join(subagents_dir, fname)
+                if not os.path.isfile(sub_path):
+                    continue
+                sub_key = fname[:-6]  # strip .jsonl, use as dict key
+                start_offset = sub_offsets.get(sub_key, 0)
+                sub_delta, sub_new_offset, sub_truncated, sub_has_new_data = (
+                    _parse_single_transcript_incremental(sub_path, start_offset)
+                )
+                if sub_truncated:
+                    any_truncated = True
+                _merge_delta(stats, sub_delta, skip_keys={"running_agents"})
+                if sub_has_new_data:
+                    any_new_data = True
+                if sub_new_offset > 0:
+                    sub_offsets[sub_key] = sub_new_offset
+        except OSError:
+            pass
+
+    # Skip cache write when nothing changed and no truncation occurred.
+    if any_new_data or any_truncated or cache is None:
+        save_cache(session_id, stats, main_offset, sub_offsets)
+
+    # Cleanup old caches ~1% of the time to avoid O(n) scan every 300ms.
+    # Use time-based pseudo-randomness to avoid importing the `random` module
+    # (saves ~1.2ms on cold start). 97 is prime and coprime to 300_000_000ns.
+    if time.time_ns() % 97 < 1:
+        cleanup_old_caches(session_id)
 
     return stats
 
@@ -327,7 +600,12 @@ def main():
             ctx_part += f" {DIM}{ctx_str}{NC}"
         parts.append(ctx_part)
 
-    # Token usage (In/Out always shown; Cache/Think only when present)
+    # Token usage display.
+    # `In` shows the total prompt size (inputTokens), matching CodeBuddy's
+    # built-in display. `Cache` shows the cached portion (cache hits) which
+    # is a subset of `In` — i.e. In already includes Cache. We don't subtract
+    # Cache from In because users compare against the system's display, which
+    # uses the raw inputTokens value.
     token_parts = [
         f"{GREEN}In:{NC}{format_tokens(stats['total_input'])}",
         f"{GREEN}Out:{NC}{format_tokens(stats['total_output'])}",
@@ -369,6 +647,13 @@ def main():
         output += f"\n{tool_str}"
 
     print(output)
+
+    # Try to auto-update the plugin (at most once per day, runs detached).
+    # Done last so it never delays the statusline output.
+    try:
+        maybe_auto_update()
+    except Exception:
+        pass
 
 if __name__ == '__main__':
     main()
