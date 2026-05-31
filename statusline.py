@@ -106,8 +106,6 @@ def new_stats():
         "tool_counts": {},
         "running_agents": 0,
         "compact_count": 0,
-        "lines_baseline_added": 0,
-        "lines_baseline_removed": 0,
     }
 
 def add_line_to_stats(stats, data):
@@ -586,36 +584,6 @@ def main():
     # Incremental parse for all metrics from main + sub-agent transcripts
     stats, was_truncated = parse_transcript_incremental(transcript_path, session_id)
 
-    # Lines added/removed baseline: after /clear, CodeBuddy doesn't reset
-    # its cumulative counters, so we track a baseline and show the delta.
-    # On truncation (= clear), reset baseline to current values so display goes to 0.
-    lines_added = cost.get('total_lines_added', 0) or 0
-    lines_removed = cost.get('total_lines_removed', 0) or 0
-
-    baseline_added = stats.get('lines_baseline_added', 0)
-    baseline_removed = stats.get('lines_baseline_removed', 0)
-
-    if was_truncated:
-        baseline_added = lines_added
-        baseline_removed = lines_removed
-    elif lines_added < baseline_added or lines_removed < baseline_removed:
-        # CodeBuddy reset its own counters (rare), realign baseline
-        baseline_added = 0
-        baseline_removed = 0
-
-    # Update baseline in stats and re-save cache
-    if stats['lines_baseline_added'] != baseline_added or stats['lines_baseline_removed'] != baseline_removed:
-        stats['lines_baseline_added'] = baseline_added
-        stats['lines_baseline_removed'] = baseline_removed
-        fresh_cache = load_cache(session_id)
-        if fresh_cache:
-            save_cache(session_id, stats,
-                       fresh_cache.get('main_offset', 0),
-                       fresh_cache.get('sub_offsets', {}))
-
-    display_lines_added = max(0, lines_added - baseline_added)
-    display_lines_removed = max(0, lines_removed - baseline_removed)
-
     parts = []
 
     if model_name:
@@ -684,8 +652,8 @@ def main():
     if duration_str:
         parts.append(f"{DIM}Time:{NC}{duration_str}")
 
-    if display_lines_added > 0 or display_lines_removed > 0:
-        parts.append(f"{GREEN}+{display_lines_added}{NC}/{RED}-{display_lines_removed}{NC}")
+    if lines_added > 0 or lines_removed > 0:
+        parts.append(f"{GREEN}+{lines_added}{NC}/{RED}-{lines_removed}{NC}")
 
     output = " | ".join(parts)
 

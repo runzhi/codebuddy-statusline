@@ -121,8 +121,6 @@ class TestNewStats(unittest.TestCase):
         self.assertEqual(stats["tool_counts"], {})
         self.assertEqual(stats["running_agents"], 0)
         self.assertEqual(stats["compact_count"], 0)
-        self.assertEqual(stats["lines_baseline_added"], 0)
-        self.assertEqual(stats["lines_baseline_removed"], 0)
 
 
 class TestAddLineToStats(unittest.TestCase):
@@ -899,8 +897,8 @@ class TestMainNullSafety(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir)
 
-    def test_lines_display_shows_delta(self):
-        """End-to-end: +N/-M shows delta from baseline, not raw cumulative."""
+    def test_lines_display(self):
+        """End-to-end: +N/-M shows raw cumulative values from cost."""
         r = self._run_main({
             "cost": {"total_lines_added": 100, "total_lines_removed": 30},
             "context_window": {
@@ -916,36 +914,5 @@ class TestMainNullSafety(unittest.TestCase):
         self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
         import re
         plain = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
-        # First call: baseline=0, so display=100/30
         self.assertIn("+100", plain)
         self.assertIn("-30", plain)
-
-    def test_lines_baseline_reset_on_counter_drop(self):
-        """When CodeBuddy resets its line counter, baseline realigns to 0."""
-        # First call establishes baseline=0, display=100/30
-        r1 = self._run_main({
-            "cost": {"total_lines_added": 100, "total_lines_removed": 30},
-            "context_window": {"used_percentage": 50, "context_window_size": 200000,
-                               "current_usage": {"input_tokens": 50000},
-                               "total_input_tokens": 50000, "total_output_tokens": 1000},
-            "session_id": "lines-reset-test",
-            "transcript_path": "",
-        })
-        self.assertEqual(r1.returncode, 0)
-
-        # Second call: CodeBuddy reset counters (e.g. after /clear)
-        r2 = self._run_main({
-            "cost": {"total_lines_added": 10, "total_lines_removed": 2},
-            "context_window": {"used_percentage": 50, "context_window_size": 200000,
-                               "current_usage": {"input_tokens": 50000},
-                               "total_input_tokens": 50000, "total_output_tokens": 1000},
-            "session_id": "lines-reset-test",
-            "transcript_path": "",
-        })
-        self.assertEqual(r2.returncode, 0, f"stdout={r2.stdout}\nstderr={r2.stderr}")
-        import re
-        plain = re.sub(r'\x1b\[[0-9;]*m', '', r2.stdout)
-        # Counter dropped: baseline reset to 0, display=10/2
-        self.assertIn("+10", plain)
-        self.assertIn("-2", plain)
-        self.assertNotIn("+110", plain)
