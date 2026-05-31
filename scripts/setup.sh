@@ -5,7 +5,8 @@
 set -euo pipefail
 
 PLUGIN_ROOT="${CODEBUDDY_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}"
-PLUGIN_DATA="${CODEBUDDY_PLUGIN_DATA:-$HOME/.codebuddy/plugins/data/statusline}"
+CACHE_BASE="${CODEBUDDY_PLUGIN_DATA:-$HOME/.codebuddy/plugins/data/statusline}"
+CACHE_DIR="${CACHE_BASE}/cache"
 SETTINGS_FILE="$HOME/.codebuddy/settings.json"
 
 # 1. Check python3
@@ -15,7 +16,6 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 # 2. Create cache directory
-CACHE_DIR="${PLUGIN_DATA}/cache"
 mkdir -p "$CACHE_DIR"
 
 # 3. Configure statusLine in settings.json (idempotent)

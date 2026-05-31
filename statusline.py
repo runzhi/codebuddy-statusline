@@ -12,12 +12,19 @@ import sys
 import os
 import time
 
-CACHE_DIR = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') and os.path.join(os.environ['CODEBUDDY_PLUGIN_DATA'], 'cache') or os.path.expanduser("~/.codebuddy/statusline-cache")
+_PLUGIN_DATA = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.expanduser("~/.codebuddy/plugins/data/statusline")
+CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
 CACHE_VERSION = 5
 
-# Plugin root directory
+# Plugin mode: CODEBUDDY_PLUGIN_ROOT is set when installed via marketplace
+# Git-clone mode: fallback to script's own directory
 PLUGIN_DIR = os.environ.get('CODEBUDDY_PLUGIN_ROOT', '') or os.path.dirname(os.path.abspath(__file__))
+IS_PLUGIN_MODE = bool(os.environ.get('CODEBUDDY_PLUGIN_ROOT', ''))
+
+# Auto-update (git-clone mode only): throttled via marker file
+UPDATE_MARKER = os.path.join(CACHE_DIR, ".last-update-check")
+UPDATE_INTERVAL_SECONDS = 86400  # once per day
 
 # ANSI color codes
 CYAN = '\033[0;36m'
@@ -205,6 +212,83 @@ def save_cache(session_id, stats, main_offset, sub_offsets=None):
             }, f)
     except IOError:
         pass
+
+def maybe_auto_update():
+    """Try to git-pull the plugin repo at most once per day (git-clone mode only).
+
+    Skipped entirely when installed via plugin marketplace (IS_PLUGIN_MODE),
+    since updates are managed by `codebuddy plugin update`.
+
+    Throttles via a marker file (mtime). The git pull runs in a fully detached
+    background process so it never blocks the statusline.
+    """
+    if IS_PLUGIN_MODE:
+        return
+
+    git_dir = os.path.join(PLUGIN_DIR, ".git")
+    if not os.path.isdir(git_dir):
+        return
+
+    try:
+        last_check = os.path.getmtime(UPDATE_MARKER)
+        if time.time() - last_check < UPDATE_INTERVAL_SECONDS:
+            return
+    except OSError:
+        pass
+
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(UPDATE_MARKER, 'w') as f:
+            f.write(str(int(time.time())))
+    except OSError:
+        return
+
+    try:
+        pid = os.fork()
+    except OSError:
+        return
+
+    if pid != 0:
+        try:
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+        return
+
+    try:
+        os.setsid()
+    except OSError:
+        os._exit(0)
+
+    try:
+        pid2 = os.fork()
+    except OSError:
+        os._exit(0)
+
+    if pid2 != 0:
+        os._exit(0)
+
+    try:
+        devnull = os.open(os.devnull, os.O_RDWR)
+        os.dup2(devnull, 0)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        os.close(devnull)
+    except OSError:
+        os._exit(0)
+
+    try:
+        import subprocess
+        subprocess.run(
+            ["git", "-C", PLUGIN_DIR, "pull", "--ff-only", "--quiet"],
+            timeout=30,
+            check=False,
+        )
+    except Exception:
+        pass
+    finally:
+        os._exit(0)
+
 
 def cleanup_old_caches(current_session_id):
     """Remove cache files older than CACHE_MAX_AGE_DAYS, excluding current session."""
@@ -592,6 +676,12 @@ def main():
         output += f"\n{tool_str}"
 
     print(output)
+
+    # Auto-update (git-clone mode only, at most once per day, runs detached).
+    try:
+        maybe_auto_update()
+    except Exception:
+        pass
 
 if __name__ == '__main__':
     try:
