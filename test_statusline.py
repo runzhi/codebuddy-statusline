@@ -16,7 +16,7 @@ from statusline import (
     format_tools, _format_tool_entry,
     parse_transcript_incremental as _parse_transcript_incremental,
     load_cache, save_cache,
-    cleanup_old_caches, maybe_auto_update,
+    cleanup_old_caches,
     CACHE_DIR, CACHE_VERSION,
 )
 
@@ -755,95 +755,6 @@ class TestCleanupOldCaches(unittest.TestCase):
             f.write("hello")
         cleanup_old_caches("other-session")
         self.assertTrue(os.path.exists(path))
-
-
-class TestAutoUpdate(unittest.TestCase):
-    """Tests for the auto-update feature (maybe_auto_update)."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        import statusline
-        self._orig_cache_dir = statusline.CACHE_DIR
-        self._orig_plugin_dir = statusline.PLUGIN_DIR
-        self._orig_marker = statusline.UPDATE_MARKER
-        statusline.CACHE_DIR = self.tmpdir
-        statusline.UPDATE_MARKER = os.path.join(self.tmpdir, ".last-update-check")
-
-    def tearDown(self):
-        import statusline
-        statusline.CACHE_DIR = self._orig_cache_dir
-        statusline.PLUGIN_DIR = self._orig_plugin_dir
-        statusline.UPDATE_MARKER = self._orig_marker
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_no_op_when_not_a_git_repo(self):
-        """When PLUGIN_DIR isn't a git repo, maybe_auto_update is a no-op."""
-        import statusline
-        statusline.PLUGIN_DIR = self.tmpdir  # not a git repo
-        # Should return without raising and without creating the marker
-        maybe_auto_update()
-        self.assertFalse(os.path.exists(statusline.UPDATE_MARKER))
-
-    def test_skips_when_marker_recent(self):
-        """If the marker file is fresh, maybe_auto_update should skip."""
-        import statusline
-        # Set up a fake git repo
-        os.makedirs(os.path.join(self.tmpdir, ".git"), exist_ok=True)
-        statusline.PLUGIN_DIR = self.tmpdir
-        # Create a fresh marker
-        with open(statusline.UPDATE_MARKER, 'w') as f:
-            f.write(str(int(time.time())))
-        marker_mtime_before = os.path.getmtime(statusline.UPDATE_MARKER)
-        time.sleep(0.05)
-        maybe_auto_update()
-        # Marker should NOT be touched (no fork/pull triggered)
-        marker_mtime_after = os.path.getmtime(statusline.UPDATE_MARKER)
-        self.assertEqual(marker_mtime_before, marker_mtime_after)
-
-    def test_runs_when_marker_old(self):
-        """If marker is older than UPDATE_INTERVAL_SECONDS, update is triggered."""
-        import statusline
-        # Set up a fake git repo (won't actually have a remote, so pull will fail
-        # silently in the grandchild — but the marker should be touched).
-        os.makedirs(os.path.join(self.tmpdir, ".git"), exist_ok=True)
-        statusline.PLUGIN_DIR = self.tmpdir
-        # Create an old marker (2 days ago)
-        with open(statusline.UPDATE_MARKER, 'w') as f:
-            f.write(str(int(time.time()) - 2 * 86400))
-        old_mtime = time.time() - 2 * 86400
-        os.utime(statusline.UPDATE_MARKER, (old_mtime, old_mtime))
-
-        marker_mtime_before = os.path.getmtime(statusline.UPDATE_MARKER)
-        maybe_auto_update()
-        # Marker should be refreshed (mtime advanced)
-        marker_mtime_after = os.path.getmtime(statusline.UPDATE_MARKER)
-        self.assertGreater(marker_mtime_after, marker_mtime_before)
-
-    def test_creates_marker_on_first_run(self):
-        """First run (no marker yet) should create the marker."""
-        import statusline
-        os.makedirs(os.path.join(self.tmpdir, ".git"), exist_ok=True)
-        statusline.PLUGIN_DIR = self.tmpdir
-        self.assertFalse(os.path.exists(statusline.UPDATE_MARKER))
-        maybe_auto_update()
-        self.assertTrue(os.path.exists(statusline.UPDATE_MARKER))
-
-    def test_returns_quickly(self):
-        """maybe_auto_update must not block the statusline (returns in << 100ms)."""
-        import statusline
-        os.makedirs(os.path.join(self.tmpdir, ".git"), exist_ok=True)
-        statusline.PLUGIN_DIR = self.tmpdir
-        # Force an update attempt
-        old_mtime = time.time() - 2 * 86400
-        with open(statusline.UPDATE_MARKER, 'w') as f:
-            f.write("0")
-        os.utime(statusline.UPDATE_MARKER, (old_mtime, old_mtime))
-
-        t = time.perf_counter()
-        maybe_auto_update()
-        elapsed_ms = (time.perf_counter() - t) * 1000
-        # Even with fork() overhead, should return well under 100ms
-        self.assertLess(elapsed_ms, 100, f"maybe_auto_update took {elapsed_ms:.1f}ms")
 
 
 class TestMainNullSafety(unittest.TestCase):

@@ -12,14 +12,12 @@ import sys
 import os
 import time
 
-CACHE_DIR = os.path.expanduser("~/.codebuddy/statusline-cache")
+CACHE_DIR = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') and os.path.join(os.environ['CODEBUDDY_PLUGIN_DATA'], 'cache') or os.path.expanduser("~/.codebuddy/statusline-cache")
 CACHE_MAX_AGE_DAYS = 7
 CACHE_VERSION = 5
 
-# Auto-update: marker file used to throttle git-pull to once per day
-PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
-UPDATE_MARKER = os.path.join(CACHE_DIR, ".last-update-check")
-UPDATE_INTERVAL_SECONDS = 86400  # once per day
+# Plugin root directory
+PLUGIN_DIR = os.environ.get('CODEBUDDY_PLUGIN_ROOT', '') or os.path.dirname(os.path.abspath(__file__))
 
 # ANSI color codes
 CYAN = '\033[0;36m'
@@ -207,98 +205,6 @@ def save_cache(session_id, stats, main_offset, sub_offsets=None):
             }, f)
     except IOError:
         pass
-
-def maybe_auto_update():
-    """Try to git-pull the plugin repo at most once per day.
-
-    Throttles via a marker file (mtime). The git pull runs in a fully detached
-    background process so it never blocks the statusline. Failures are silent:
-    no network, no git, not a git repo, etc. all just no-op.
-
-    Design choices:
-    - Daemonized via double-fork so the parent (statusline) returns immediately
-      without waiting for git. The grandchild is reparented to PID 1.
-    - All git output is discarded (we don't surface errors).
-    - Marker file is written BEFORE the pull starts so even if git hangs or
-      fails, we still wait a full day before retrying.
-    - Uses --ff-only to avoid merge commits or conflicts; if local changes
-      exist, the pull simply fails harmlessly.
-    """
-    # Quick check: is the plugin directory a git repo?
-    git_dir = os.path.join(PLUGIN_DIR, ".git")
-    if not os.path.isdir(git_dir):
-        return
-
-    # Throttle: only attempt once per UPDATE_INTERVAL_SECONDS
-    try:
-        last_check = os.path.getmtime(UPDATE_MARKER)
-        if time.time() - last_check < UPDATE_INTERVAL_SECONDS:
-            return
-    except OSError:
-        pass  # marker doesn't exist yet — proceed
-
-    # Touch the marker first so a hanging git doesn't keep us retrying
-    try:
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        with open(UPDATE_MARKER, 'w') as f:
-            f.write(str(int(time.time())))
-    except OSError:
-        return  # can't write marker — skip update to avoid retry storm
-
-    # Double-fork to fully detach the git process from the statusline.
-    # The first child forks again and exits; the grandchild does the work
-    # and is adopted by init (PID 1), so we don't leave zombies.
-    try:
-        pid = os.fork()
-    except OSError:
-        return  # fork failed — give up
-
-    if pid != 0:
-        # Parent: reap the first child to avoid a zombie, then return immediately.
-        try:
-            os.waitpid(pid, 0)
-        except OSError:
-            pass
-        return
-
-    # First child: detach from parent's session and fork again
-    try:
-        os.setsid()
-    except OSError:
-        os._exit(0)
-
-    try:
-        pid2 = os.fork()
-    except OSError:
-        os._exit(0)
-
-    if pid2 != 0:
-        # First child exits immediately; grandchild is reparented to init.
-        os._exit(0)
-
-    # Grandchild: actually run the git pull.
-    try:
-        # Redirect stdin/stdout/stderr to /dev/null so git can't write anywhere.
-        devnull = os.open(os.devnull, os.O_RDWR)
-        os.dup2(devnull, 0)
-        os.dup2(devnull, 1)
-        os.dup2(devnull, 2)
-        os.close(devnull)
-    except OSError:
-        os._exit(0)
-
-    try:
-        import subprocess
-        subprocess.run(
-            ["git", "-C", PLUGIN_DIR, "pull", "--ff-only", "--quiet"],
-            timeout=30,
-            check=False,
-        )
-    except Exception:
-        pass
-    finally:
-        os._exit(0)
-
 
 def cleanup_old_caches(current_session_id):
     """Remove cache files older than CACHE_MAX_AGE_DAYS, excluding current session."""
@@ -686,13 +592,6 @@ def main():
         output += f"\n{tool_str}"
 
     print(output)
-
-    # Try to auto-update the plugin (at most once per day, runs detached).
-    # Done last so it never delays the statusline output.
-    try:
-        maybe_auto_update()
-    except Exception:
-        pass
 
 if __name__ == '__main__':
     try:
