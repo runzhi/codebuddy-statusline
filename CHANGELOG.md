@@ -8,6 +8,11 @@
 
 ### 新增 (Added)
 
+- **插件化改造**：支持通过 CodeBuddy 插件系统安装，SessionStart hook 自动配置 statusLine，无需手动编辑 settings.json。
+- **SessionStart hook**：`hooks/hooks.json` 监听 `startup|resume|clear|compact` 事件，自动执行幂等 setup 脚本。
+- **幂等 setup 脚本**：`scripts/setup.sh` 检查 python3、创建缓存目录、配置 statusLine 到 settings.json（已配置则跳过）。
+- **`/statusline:setup` 命令**：手动触发配置或排查问题的斜杠命令。
+- **`IS_PLUGIN_MODE` 标志**：`CODEBUDDY_PLUGIN_ROOT` 环境变量存在时自动启用，跳过 git pull 自动更新（由 marketplace 管理），git-clone 模式下照常每日自动更新。
 - **Compact / Periodic 分别计数**：状态栏在 Context 进度条后分别显示 `Compact×N`（黄色，`pre-compact` 事件）和 `Periodic×M`（灰色，`periodic` 事件），两者均为 `summary` 类型条目但含义不同：Compact 是真正的 context 压缩，Periodic 是常规定期摘要。`initial-user-message` 和无 `source` 的摘要不计入。
 - **null 安全处理**：CodeBuddy 可能对 `cost`、`model`、`context_window`、`current_usage`、`usage` 等字段发送 `null`。改用 `.get('key') or {}` 模式，确保 `None` 值不会触发 `AttributeError`。
 - **全局崩溃兜底**：`main()` 外层添加 `try/except`，任何未捕获异常输出 `ERR:TypeName: message` 而非静默空白，便于排查。
@@ -26,7 +31,10 @@
 
 ### 变更 (Changed)
 
-- **In/Out/Cache/Credits 恢复包含子 Agent**：v1.2 中 In/Out/Cache 改为读取 stdin JSON 的 `context_window` 字段（仅含主 Agent），v1.3 恢复从 transcript 解析（含子 Agent），与 Credits 一致。Fallback 逻辑：transcript 无数据时 In/Out 回退到 stdin JSON（Cache/Think 无 fallback）。
+- **统一缓存路径**：CACHE_DIR 统一为 `{PLUGIN_DATA}/cache`（插件模式：`${CODEBUDDY_PLUGIN_DATA}/cache`，git-clone 模式：`~/.codebuddy/plugins/data/statusline/cache`），不再使用旧的 `~/.codebuddy/statusline-cache`。
+- **plugin.json 补全元数据**：添加 `description_en`、`homepage`、`repository`、`license`、`commands`、`hooks` 字段。
+- **cost-detail 命令路径**：`commands/cost-detail.md` 改用 `${CODEBUDDY_PLUGIN_ROOT}` 环境变量。
+- **In/Out/Cache/Credits 恢复包含子 Agent**
 - **子 Agent 解析策略调整**：`compact_count`、`periodic_count` 不计入子 Agent（仅主 context 的压缩/摘要事件有意义）；`running_agents` 仍仅从主 transcript 追踪。
 - **Cache 命中提取**：`add_line_to_stats` 从 `providerData.usage.inputTokensDetails[].cached_tokens` 提取 `total_cache_read`，并兼容 `providerData.rawUsage.prompt_cache_hit_tokens`。
 
