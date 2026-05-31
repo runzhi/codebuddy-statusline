@@ -8,23 +8,26 @@
 
 ### 新增 (Added)
 
-- **AutoCompact 计数**：状态栏在 Context 进度条后显示 `AutoCompact×N`（黄色），追踪主 Agent 的自动 context 压缩事件。仅统计 `source` 为 `pre-compact` 的 `summary` 条目，忽略 `periodic`、`initial-user-message` 和无 `source` 的摘要。
-- **null 安全处理**：CodeBuddy 可能对 `cost`、`model`、`context_window`、`current_usage` 等字段发送 `null`。改用 `.get('key') or {}` 模式，确保 `None` 值不会触发 `AttributeError`。
+- **Compact / Periodic 分别计数**：状态栏在 Context 进度条后分别显示 `Compact×N`（黄色，`pre-compact` 事件）和 `Periodic×M`（灰色，`periodic` 事件），两者均为 `summary` 类型条目但含义不同：Compact 是真正的 context 压缩，Periodic 是常规定期摘要。`initial-user-message` 和无 `source` 的摘要不计入。
+- **null 安全处理**：CodeBuddy 可能对 `cost`、`model`、`context_window`、`current_usage`、`usage` 等字段发送 `null`。改用 `.get('key') or {}` 模式，确保 `None` 值不会触发 `AttributeError`。
 - **全局崩溃兜底**：`main()` 外层添加 `try/except`，任何未捕获异常输出 `ERR:TypeName: message` 而非静默空白，便于排查。
 - **旧缓存兼容**：加载缓存时自动 backfill 缺失字段、删除不在 `new_stats()` 中的废弃 key（防止 KeyError 崩溃）。
 
 ### 修复 (Fixed)
 
-- **旧缓存 KeyError 崩溃**：删除 `total_input`/`total_output` 等字段后，磁盘上旧缓存仍包含这些 key。增量合并时 `delta[key]` 抛出 KeyError 导致脚本静默崩溃（状态栏空白）。修复：加载缓存后删除不在 `new_stats()` 中的废弃 key。
+- **`usage=null` 导致 AttributeError**：`providerData.usage` 为 JSON `null` 时，`pd.get('usage', {})` 返回 `None` 而非 `{}`，后续 `None.get()` 崩溃。改为 `pd.get('usage') or {}`。
+- **`prompt_cache_hit_tokens=0` 被吞掉**：`raw_usage.get('prompt_cache_hit_tokens', cache_read) or cache_read` 在 API 显式返回 0 时回退到 `inputTokensDetails` 计算值。改为先检查 key 是否存在再取值。
+- **Corrupted cache 非 dict `tool_counts` 崩溃**：缓存文件中 `tool_counts` 字段为非 dict 值时，合并循环 `stats[key].get(k, 0)` 抛 `AttributeError`。增加 `isinstance` 防护。
+- **旧缓存 KeyError 崩溃**：删除 `total_input`/`total_output` 等字段后，磁盘上旧缓存仍包含这些 key。增量合并时 `delta[key]` 抛出 KeyError 导致脚本静默崩溃。修复：加载缓存后删除不在 `new_stats()` 中的废弃 key。
 - **子 Agent 截断 double-counting**：子 Agent transcript 截断时，旧的 `pass` 无操作导致旧数据保留、新全量解析叠加其上，造成 token/credit 重复计数。修复：任何 transcript 截断触发全量重解析（丢弃所有缓存 stats）。
 - **delta 合并遍历方向**：合并循环从遍历 `stats` keys 改为遍历 `delta` keys，避免 `stats` 中残留意外 key 时 `delta[key]` 抛 KeyError。
 - **`.jsonl` 后缀切片错误**：`[:-5]` 仅去掉 5 个字符（`.json`），实际 `.jsonl` 为 6 个字符。修正为 `[:-6]`。
-- **AutoCompact 旧缓存误报**：曾按 `periodic` summary 误计 AutoCompact 的 v2 缓存会被判为过期并全量重算，避免未 compact 的会话继续显示 `AutoCompact×1`。
+- **CACHE_VERSION 未升级导致旧缓存误用**：修改 compact 计数逻辑后未同步升级 `CACHE_VERSION`，旧缓存中 `compact_count` 不准确但不会被判定为过期。修复：每次修改 `new_stats()` 结构或计数逻辑时同步升级 `CACHE_VERSION`（当前 v5）。
 
 ### 变更 (Changed)
 
-- **In/Out/Cache/Credits 恢复包含子 Agent**：v1.2 中 In/Out/Cache 改为读取 stdin JSON 的 `context_window` 字段（仅含主 Agent），v1.3 恢复从 transcript 解析（含子 Agent），与 Credits 一致。Fallback 逻辑：transcript 无数据时回退到 stdin JSON。
-- **子 Agent 解析策略调整**：`compact_count` 不计入子 Agent（仅主 context 的自动压缩事件有意义）；`running_agents` 仍仅从主 transcript 追踪。
+- **In/Out/Cache/Credits 恢复包含子 Agent**：v1.2 中 In/Out/Cache 改为读取 stdin JSON 的 `context_window` 字段（仅含主 Agent），v1.3 恢复从 transcript 解析（含子 Agent），与 Credits 一致。Fallback 逻辑：transcript 无数据时 In/Out 回退到 stdin JSON（Cache/Think 无 fallback）。
+- **子 Agent 解析策略调整**：`compact_count`、`periodic_count` 不计入子 Agent（仅主 context 的压缩/摘要事件有意义）；`running_agents` 仍仅从主 transcript 追踪。
 - **Cache 命中提取**：`add_line_to_stats` 从 `providerData.usage.inputTokensDetails[].cached_tokens` 提取 `total_cache_read`，并兼容 `providerData.rawUsage.prompt_cache_hit_tokens`。
 
 ## [1.2.0] - 2026-05-30

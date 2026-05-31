@@ -14,7 +14,7 @@ import time
 
 CACHE_DIR = os.path.expanduser("~/.codebuddy/statusline-cache")
 CACHE_MAX_AGE_DAYS = 7
-CACHE_VERSION = 3
+CACHE_VERSION = 5
 
 # Auto-update: marker file used to throttle git-pull to once per day
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -107,6 +107,7 @@ def new_stats():
         "tool_counts": {},
         "running_agents": 0,
         "compact_count": 0,
+        "periodic_count": 0,
     }
 
 def add_line_to_stats(stats, data):
@@ -127,16 +128,20 @@ def add_line_to_stats(stats, data):
     # Count context compaction events
     elif entry_type == 'summary':
         pd = data.get('providerData', {})
-        if isinstance(pd, dict) and pd.get('source') == 'pre-compact':
-            stats["compact_count"] += 1
+        if isinstance(pd, dict):
+            source = pd.get('source')
+            if source == 'pre-compact':
+                stats["compact_count"] += 1
+            elif source not in ('initial-user-message', None):
+                stats["periodic_count"] += 1
 
     # Token usage — In/Out/Cache/Think/Credits from providerData
-    pd = data.get('providerData', {})
+    pd = data.get('providerData')
     if not isinstance(pd, dict):
         return
 
-    usage = pd.get('usage', {})
-    raw_usage = pd.get('rawUsage', {})
+    usage = pd.get('usage') or {}
+    raw_usage = pd.get('rawUsage') or {}
 
     if not usage and not raw_usage:
         return
@@ -156,7 +161,8 @@ def add_line_to_stats(stats, data):
 
     credit = 0
     if raw_usage:
-        cache_read = raw_usage.get('prompt_cache_hit_tokens', cache_read) or cache_read
+        if 'prompt_cache_hit_tokens' in raw_usage:
+            cache_read = raw_usage['prompt_cache_hit_tokens'] or 0
         credit = raw_usage.get('credit', 0) or 0
 
     if input_tokens > 0 or output_tokens > 0:
@@ -173,7 +179,9 @@ def load_cache(session_id):
     The cache file ({session_id}.json) contains:
         {
             "stats": {...accumulated stats...},
-            "main_offset": <int>
+            "main_offset": <int>,
+            "sub_offsets": {<agent_key>: <int>, ...},
+            "cache_version": <int>
         }
 
     Returns the parsed dict, or None if the file is missing/corrupt.
@@ -318,9 +326,9 @@ def cleanup_old_caches(current_session_id):
 def parse_transcript_incremental(transcript_path, session_id):
     """Parse main + sub-agent transcripts incrementally.
 
-    Extracts In/Out/Cache/Think/Credits/Req/Tools/Compact from all transcripts.
+    Extracts In/Out/Cache/Think/Credits/Req/Tools/Compact/Periodic from all transcripts.
     Sub-agents contribute to token/credit/tool counts but NOT to
-    running_agents or compact_count (those are main-transcript-only gauges).
+    running_agents, compact_count, or periodic_count (those are main-transcript-only).
 
     Skip-write: if no new data was found, skip writing the cache entirely.
     Truncation handling: if any transcript was truncated, discard all cached
@@ -346,7 +354,7 @@ def parse_transcript_incremental(transcript_path, session_id):
     if cache:
         if "stats" in cache and isinstance(cache["stats"], dict):
             stats = cache["stats"]
-            # Backfill new fields and remove obsolete keys
+            # Backfill new fields and remove obsolete keys for same-version caches
             valid_keys = set(new_stats().keys())
             for key, default in new_stats().items():
                 if key not in stats:
@@ -419,6 +427,11 @@ def parse_transcript_incremental(transcript_path, session_id):
                 has_new_data = False
                 for line in f:
                     has_new_data = True
+                    # Pre-filter: skip lines that can't contribute to stats.
+                    # Must cover all entry types processed by add_line_to_stats:
+                    # function_call, function_call_result, summary, and anything with providerData.
+                    # If add_line_to_stats is extended to handle new entry types,
+                    # update this filter accordingly.
                     if ('function_call' not in line
                             and 'providerData' not in line
                             and '"summary"' not in line):
@@ -446,8 +459,9 @@ def parse_transcript_incremental(transcript_path, session_id):
                     if isinstance(delta[key], (int, float)):
                         stats[key] = stats.get(key, 0) + delta[key]
                     elif isinstance(delta[key], dict):
+                        if not isinstance(stats.get(key), dict):
+                            stats[key] = {}
                         for k, v in delta[key].items():
-                            stats.setdefault(key, {})
                             stats[key][k] = stats[key].get(k, 0) + v
                 stats["running_agents"] = max(0, delta["running_agents"] + previous_running_agents)
 
@@ -497,15 +511,16 @@ def parse_transcript_incremental(transcript_path, session_id):
                         any_new_data = True
 
                     # Merge sub-agent delta into main stats
-                    # Sub-agents contribute tokens/credits/tools but NOT running_agents/compact_count
+                    # Sub-agents contribute tokens/credits/tools but NOT running_agents/compact_count/periodic_count
                     for key in sub_delta:
-                        if key in ("running_agents", "compact_count"):
+                        if key in ("running_agents", "compact_count", "periodic_count"):
                             continue
                         if isinstance(sub_delta[key], (int, float)):
                             stats[key] = stats.get(key, 0) + sub_delta[key]
                         elif isinstance(sub_delta[key], dict):
+                            if not isinstance(stats.get(key), dict):
+                                stats[key] = {}
                             for k, v in sub_delta[key].items():
-                                stats.setdefault(key, {})
                                 stats[key][k] = stats[key].get(k, 0) + v
 
                     sub_offsets[agent_key] = new_sub_offset
@@ -617,12 +632,15 @@ def main():
         if ctx_str:
             ctx_part += f" {DIM}{ctx_str}{NC}"
         if stats.get('compact_count', 0) > 0:
-            ctx_part += f" {YELLOW}AutoCompact×{stats['compact_count']}{NC}"
+            ctx_part += f" {YELLOW}Compact×{stats['compact_count']}{NC}"
+        if stats.get('periodic_count', 0) > 0:
+            ctx_part += f" {DIM}Periodic×{stats['periodic_count']}{NC}"
         parts.append(ctx_part)
 
     # Token usage display.
-    # In/Out/Cache come from transcript parsing (main + sub-agents).
-    # Falls back to CodeBuddy's context_window values if transcript has no data.
+    # In/Out come from transcript parsing (main + sub-agents),
+    # falling back to CodeBuddy's context_window values if transcript has no data.
+    # Cache/Think have no context_window fallback — they only come from transcript parsing.
     display_in = stats.get('total_input', 0) or ctx.get('total_input_tokens') or 0
     display_out = stats.get('total_output', 0) or ctx.get('total_output_tokens') or 0
     display_cache = stats.get('total_cache_read', 0)

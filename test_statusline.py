@@ -121,6 +121,7 @@ class TestNewStats(unittest.TestCase):
         self.assertEqual(stats["tool_counts"], {})
         self.assertEqual(stats["running_agents"], 0)
         self.assertEqual(stats["compact_count"], 0)
+        self.assertEqual(stats["periodic_count"], 0)
 
 
 class TestAddLineToStats(unittest.TestCase):
@@ -238,12 +239,13 @@ class TestAddLineToStats(unittest.TestCase):
         })
         self.assertEqual(stats["compact_count"], 1)
 
-    def test_compact_count_ignores_periodic_summary(self):
+    def test_compact_count_counts_periodic_summary(self):
         stats = new_stats()
         add_line_to_stats(stats, {
             'type': 'summary',
             'providerData': {'source': 'periodic'},
         })
+        self.assertEqual(stats["periodic_count"], 1)
         self.assertEqual(stats["compact_count"], 0)
 
     def test_compact_count_ignores_initial_user_message(self):
@@ -492,9 +494,7 @@ class TestIncrementalParsing(unittest.TestCase):
         self.assertEqual(stats["tool_counts"], {})
 
     def test_old_cache_obsolete_keys_removed(self):
-        """Regression: cache with keys no longer in new_stats() is cleaned up.
-        Currently all token fields (total_input etc.) are valid, but any
-        unknown future keys would be stripped on load."""
+        """Same-version cache with obsolete keys: backfill missing, remove unknown."""
         import statusline
         # Write a transcript first so we can get its size for a valid offset
         self._write_lines([
@@ -535,11 +535,14 @@ class TestIncrementalParsing(unittest.TestCase):
         self.assertEqual(stats["request_count"], 104)
         self.assertEqual(stats["tool_counts"]["Bash"], 32)
         self.assertEqual(stats["tool_counts"]["Read"], 1)
+        # Missing fields should be backfilled
+        self.assertEqual(stats["compact_count"], 0)
+        self.assertEqual(stats["periodic_count"], 0)
         # Unknown keys should be removed
         self.assertNotIn("some_unknown_future_key", stats)
 
-    def test_stale_compact_cache_reparsed_for_compact_rule(self):
-        """Stale v2 caches may contain periodic summaries miscounted as compacts."""
+    def test_stale_compact_cache_preserved_on_fast_path(self):
+        """Fast path: cached compact_count preserved when no new data."""
         self._write_lines([
             {'type': 'summary', 'providerData': {'source': 'initial-user-message'}},
             {'type': 'summary', 'providerData': {'source': 'periodic'}},
@@ -547,10 +550,10 @@ class TestIncrementalParsing(unittest.TestCase):
         file_size = os.path.getsize(self.transcript_path)
 
         old_cache = {
-            "stats": dict(new_stats(), compact_count=1),
+            "stats": dict(new_stats(), compact_count=5, periodic_count=2),
             "main_offset": file_size,
             "sub_offsets": {},
-            "cache_version": 2,
+            "cache_version": CACHE_VERSION,
         }
         os.makedirs(self.cache_dir, exist_ok=True)
         cache_path = os.path.join(self.cache_dir, "compact-old-cache.json")
@@ -558,7 +561,9 @@ class TestIncrementalParsing(unittest.TestCase):
             json.dump(old_cache, f)
 
         stats = parse_transcript_incremental(self.transcript_path, "compact-old-cache")
-        self.assertEqual(stats["compact_count"], 0)
+        # Fast path: offset matches file size, cache preserved as-is
+        self.assertEqual(stats["compact_count"], 5)
+        self.assertEqual(stats["periodic_count"], 2)
 
     def test_subagent_parsing(self):
         """Sub-agent transcripts contribute to token/credit/tool counts."""
@@ -906,7 +911,7 @@ class TestMainNullSafety(unittest.TestCase):
         self.assertIn("In:1.5M", plain)
 
     def test_compact_count_in_output(self):
-        """End-to-end: Compact×N appears in statusline output when compactions occurred."""
+        """End-to-end: Compact×N and Periodic×M appear separately in statusline output."""
         # Create a transcript with compact events
         tmpdir = tempfile.mkdtemp()
         transcript = os.path.join(tmpdir, "compact-test.jsonl")
@@ -916,7 +921,7 @@ class TestMainNullSafety(unittest.TestCase):
                 'type': 'summary',
                 'providerData': {'source': 'initial-user-message'},
             }) + '\n')
-            # periodic summaries should not count; pre-compact marks real compaction
+            # periodic and pre-compact summaries counted separately
             for src in ['periodic', 'pre-compact', 'pre-compact', 'pre-compact']:
                 f.write(json.dumps({
                     'type': 'summary',
@@ -940,7 +945,8 @@ class TestMainNullSafety(unittest.TestCase):
             self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
             import re
             plain = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
-            self.assertIn("AutoCompact×3", plain)
+            self.assertIn("Compact×3", plain)
+            self.assertIn("Periodic×1", plain)
         finally:
             shutil.rmtree(tmpdir)
 
