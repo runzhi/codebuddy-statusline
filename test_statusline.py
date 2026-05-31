@@ -115,7 +115,6 @@ class TestNewStats(unittest.TestCase):
         self.assertEqual(stats["total_input"], 0)
         self.assertEqual(stats["total_output"], 0)
         self.assertEqual(stats["total_cache_read"], 0)
-        self.assertEqual(stats["total_cache_write"], 0)
         self.assertEqual(stats["total_reasoning"], 0)
         self.assertEqual(stats["total_credits"], 0.0)
         self.assertEqual(stats["request_count"], 0)
@@ -170,8 +169,7 @@ class TestAddLineToStats(unittest.TestCase):
                     'inputTokens': 1000,
                     'outputTokens': 500,
                     'outputTokensDetails': [{'reasoning_tokens': 200}],
-                    'cacheReadInputTokens': 800,
-                    'cacheWriteOutputTokens': 100,
+                    'inputTokensDetails': [{'cached_tokens': 800}],
                 },
                 'rawUsage': {
                     'credit': 5.0,
@@ -181,7 +179,6 @@ class TestAddLineToStats(unittest.TestCase):
         self.assertEqual(stats["total_input"], 1000)
         self.assertEqual(stats["total_output"], 500)
         self.assertEqual(stats["total_cache_read"], 800)
-        self.assertEqual(stats["total_cache_write"], 100)
         self.assertEqual(stats["total_reasoning"], 200)
         self.assertEqual(stats["total_credits"], 5.0)
         self.assertEqual(stats["request_count"], 1)
@@ -532,7 +529,7 @@ class TestIncrementalParsing(unittest.TestCase):
                 'type': 'message',
                 'providerData': {
                     'usage': {'inputTokens': 1000, 'outputTokens': 500,
-                              'cacheReadInputTokens': 200, 'cacheWriteOutputTokens': 50},
+                              'inputTokensDetails': [{'cached_tokens': 200}]},
                     'rawUsage': {'credit': 3.0},
                 },
             }) + '\n')
@@ -545,7 +542,7 @@ class TestIncrementalParsing(unittest.TestCase):
                 'type': 'message',
                 'providerData': {
                     'usage': {'inputTokens': 500, 'outputTokens': 200,
-                              'cacheReadInputTokens': 100, 'cacheWriteOutputTokens': 0},
+                              'inputTokensDetails': [{'cached_tokens': 100}]},
                     'rawUsage': {'credit': 1.5},
                 },
             }) + '\n')

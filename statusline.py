@@ -100,7 +100,6 @@ def new_stats():
         "total_input": 0,
         "total_output": 0,
         "total_cache_read": 0,
-        "total_cache_write": 0,
         "total_reasoning": 0,
         "total_credits": 0.0,
         "request_count": 0,
@@ -145,8 +144,11 @@ def add_line_to_stats(stats, data):
 
     input_tokens = usage.get('inputTokens', 0) or 0
     output_tokens = usage.get('outputTokens', 0) or 0
-    cache_read = usage.get('cacheReadInputTokens', 0) or 0
-    cache_write = usage.get('cacheWriteOutputTokens', 0) or 0
+    # Cache read tokens are in inputTokensDetails[].cached_tokens
+    cache_read = sum(
+        detail.get('cached_tokens', 0) or 0
+        for detail in (usage.get('inputTokensDetails') or [])
+    )
 
     reasoning = sum(
         detail.get('reasoning_tokens', 0) or 0
@@ -161,7 +163,6 @@ def add_line_to_stats(stats, data):
         stats["total_input"] += input_tokens
         stats["total_output"] += output_tokens
         stats["total_cache_read"] += cache_read
-        stats["total_cache_write"] += cache_write
         stats["total_reasoning"] += reasoning
         stats["total_credits"] += credit
         stats["request_count"] += 1
