@@ -14,6 +14,7 @@ import time
 
 CACHE_DIR = os.path.expanduser("~/.codebuddy/statusline-cache")
 CACHE_MAX_AGE_DAYS = 7
+CACHE_VERSION = 3
 
 # Auto-update: marker file used to throttle git-pull to once per day
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -126,7 +127,7 @@ def add_line_to_stats(stats, data):
     # Count context compaction events
     elif entry_type == 'summary':
         pd = data.get('providerData', {})
-        if isinstance(pd, dict) and pd.get('source') not in ('initial-user-message', None):
+        if isinstance(pd, dict) and pd.get('source') == 'pre-compact':
             stats["compact_count"] += 1
 
     # Token usage — In/Out/Cache/Think/Credits from providerData
@@ -155,6 +156,7 @@ def add_line_to_stats(stats, data):
 
     credit = 0
     if raw_usage:
+        cache_read = raw_usage.get('prompt_cache_hit_tokens', cache_read) or cache_read
         credit = raw_usage.get('credit', 0) or 0
 
     if input_tokens > 0 or output_tokens > 0:
@@ -193,6 +195,7 @@ def save_cache(session_id, stats, main_offset, sub_offsets=None):
                 "stats": stats,
                 "main_offset": main_offset,
                 "sub_offsets": sub_offsets or {},
+                "cache_version": CACHE_VERSION,
             }, f)
     except IOError:
         pass
@@ -335,6 +338,8 @@ def parse_transcript_incremental(transcript_path, session_id):
 
     # Load cache
     cache = load_cache(session_id)
+    if cache and cache.get("cache_version") != CACHE_VERSION:
+        cache = None
     previous_running_agents = 0
     main_offset = 0
     sub_offsets = {}
@@ -612,7 +617,7 @@ def main():
         if ctx_str:
             ctx_part += f" {DIM}{ctx_str}{NC}"
         if stats.get('compact_count', 0) > 0:
-            ctx_part += f" {YELLOW}Compact×{stats['compact_count']}{NC}"
+            ctx_part += f" {YELLOW}AutoCompact×{stats['compact_count']}{NC}"
         parts.append(ctx_part)
 
     # Token usage display.

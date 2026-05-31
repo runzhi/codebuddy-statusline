@@ -17,7 +17,7 @@ from statusline import (
     parse_transcript_incremental as _parse_transcript_incremental,
     load_cache, save_cache,
     cleanup_old_caches, maybe_auto_update,
-    CACHE_DIR,
+    CACHE_DIR, CACHE_VERSION,
 )
 
 
@@ -199,6 +199,22 @@ class TestAddLineToStats(unittest.TestCase):
         self.assertEqual(stats["total_credits"], 1.0)
         self.assertEqual(stats["request_count"], 1)
 
+    def test_raw_usage_cache_hit_fallback(self):
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'message',
+            'providerData': {
+                'usage': {
+                    'inputTokens': 100,
+                    'outputTokens': 50,
+                },
+                'rawUsage': {
+                    'prompt_cache_hit_tokens': 80,
+                },
+            }
+        })
+        self.assertEqual(stats["total_cache_read"], 80)
+
     def test_no_raw_usage(self):
         stats = new_stats()
         add_line_to_stats(stats, {
@@ -218,9 +234,17 @@ class TestAddLineToStats(unittest.TestCase):
         stats = new_stats()
         add_line_to_stats(stats, {
             'type': 'summary',
-            'providerData': {'source': 'context-compaction'},
+            'providerData': {'source': 'pre-compact'},
         })
         self.assertEqual(stats["compact_count"], 1)
+
+    def test_compact_count_ignores_periodic_summary(self):
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'summary',
+            'providerData': {'source': 'periodic'},
+        })
+        self.assertEqual(stats["compact_count"], 0)
 
     def test_compact_count_ignores_initial_user_message(self):
         stats = new_stats()
@@ -493,6 +517,7 @@ class TestIncrementalParsing(unittest.TestCase):
             },
             "main_offset": file_size,
             "sub_offsets": {"agent-abc": 12345},
+            "cache_version": CACHE_VERSION,
         }
         os.makedirs(self.cache_dir, exist_ok=True)
         cache_path = os.path.join(self.cache_dir, "old-sess.json")
@@ -512,6 +537,28 @@ class TestIncrementalParsing(unittest.TestCase):
         self.assertEqual(stats["tool_counts"]["Read"], 1)
         # Unknown keys should be removed
         self.assertNotIn("some_unknown_future_key", stats)
+
+    def test_stale_compact_cache_reparsed_for_compact_rule(self):
+        """Stale v2 caches may contain periodic summaries miscounted as compacts."""
+        self._write_lines([
+            {'type': 'summary', 'providerData': {'source': 'initial-user-message'}},
+            {'type': 'summary', 'providerData': {'source': 'periodic'}},
+        ])
+        file_size = os.path.getsize(self.transcript_path)
+
+        old_cache = {
+            "stats": dict(new_stats(), compact_count=1),
+            "main_offset": file_size,
+            "sub_offsets": {},
+            "cache_version": 2,
+        }
+        os.makedirs(self.cache_dir, exist_ok=True)
+        cache_path = os.path.join(self.cache_dir, "compact-old-cache.json")
+        with open(cache_path, 'w') as f:
+            json.dump(old_cache, f)
+
+        stats = parse_transcript_incremental(self.transcript_path, "compact-old-cache")
+        self.assertEqual(stats["compact_count"], 0)
 
     def test_subagent_parsing(self):
         """Sub-agent transcripts contribute to token/credit/tool counts."""
@@ -869,8 +916,8 @@ class TestMainNullSafety(unittest.TestCase):
                 'type': 'summary',
                 'providerData': {'source': 'initial-user-message'},
             }) + '\n')
-            # 3 compact events
-            for src in ['periodic', 'pre-compact', 'periodic']:
+            # periodic summaries should not count; pre-compact marks real compaction
+            for src in ['periodic', 'pre-compact', 'pre-compact', 'pre-compact']:
                 f.write(json.dumps({
                     'type': 'summary',
                     'providerData': {'source': src},
@@ -893,7 +940,7 @@ class TestMainNullSafety(unittest.TestCase):
             self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
             import re
             plain = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
-            self.assertIn("Compact×3", plain)
+            self.assertIn("AutoCompact×3", plain)
         finally:
             shutil.rmtree(tmpdir)
 
