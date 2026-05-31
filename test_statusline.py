@@ -14,8 +14,8 @@ from statusline import (
     format_tokens, format_cost, format_duration,
     make_progress_bar, new_stats, add_line_to_stats,
     format_tools, _format_tool_entry,
-    parse_transcript_incremental, _parse_single_transcript_incremental,
-    _merge_delta, load_cache, save_cache,
+    parse_transcript_incremental,
+    load_cache, save_cache,
     cleanup_old_caches, maybe_auto_update,
     CACHE_DIR,
 )
@@ -108,9 +108,14 @@ class TestNewStats(unittest.TestCase):
         stats = new_stats()
         self.assertEqual(stats["total_input"], 0)
         self.assertEqual(stats["total_output"], 0)
-        self.assertEqual(stats["running_agents"], 0)
-        self.assertEqual(stats["tool_counts"], {})
+        self.assertEqual(stats["total_cache_read"], 0)
+        self.assertEqual(stats["total_cache_write"], 0)
+        self.assertEqual(stats["total_reasoning"], 0)
+        self.assertEqual(stats["total_credits"], 0.0)
         self.assertEqual(stats["request_count"], 0)
+        self.assertEqual(stats["tool_counts"], {})
+        self.assertEqual(stats["running_agents"], 0)
+        self.assertEqual(stats["compact_count"], 0)
 
 
 class TestAddLineToStats(unittest.TestCase):
@@ -148,7 +153,7 @@ class TestAddLineToStats(unittest.TestCase):
         add_line_to_stats(stats, {'type': 'function_call_result', 'name': 'Agent'})
         self.assertEqual(stats["running_agents"], -1)
 
-    def test_token_usage(self):
+    def test_reasoning_and_credits(self):
         stats = new_stats()
         add_line_to_stats(stats, {
             'type': 'message',
@@ -156,11 +161,11 @@ class TestAddLineToStats(unittest.TestCase):
                 'usage': {
                     'inputTokens': 1000,
                     'outputTokens': 500,
-                    'inputTokensDetails': [{'cached_tokens': 800}],
                     'outputTokensDetails': [{'reasoning_tokens': 200}],
+                    'cacheReadInputTokens': 800,
+                    'cacheWriteOutputTokens': 100,
                 },
                 'rawUsage': {
-                    'cache_creation_input_tokens': 100,
                     'credit': 5.0,
                 },
             }
@@ -173,7 +178,7 @@ class TestAddLineToStats(unittest.TestCase):
         self.assertEqual(stats["total_credits"], 5.0)
         self.assertEqual(stats["request_count"], 1)
 
-    def test_raw_usage_cache_read_override(self):
+    def test_no_reasoning_tokens(self):
         stats = new_stats()
         add_line_to_stats(stats, {
             'type': 'message',
@@ -181,14 +186,53 @@ class TestAddLineToStats(unittest.TestCase):
                 'usage': {
                     'inputTokens': 100,
                     'outputTokens': 50,
-                    'inputTokensDetails': [{'cached_tokens': 30}],
                 },
                 'rawUsage': {
-                    'prompt_cache_hit_tokens': 2000,
+                    'credit': 1.0,
                 },
             }
         })
-        self.assertEqual(stats["total_cache_read"], 2000)
+        self.assertEqual(stats["total_reasoning"], 0)
+        self.assertEqual(stats["total_credits"], 1.0)
+        self.assertEqual(stats["request_count"], 1)
+
+    def test_no_raw_usage(self):
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'message',
+            'providerData': {
+                'usage': {
+                    'inputTokens': 100,
+                    'outputTokens': 50,
+                },
+            }
+        })
+        self.assertEqual(stats["total_reasoning"], 0)
+        self.assertEqual(stats["total_credits"], 0.0)
+        self.assertEqual(stats["request_count"], 1)
+
+    def test_compact_count(self):
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'summary',
+            'providerData': {'source': 'context-compaction'},
+        })
+        self.assertEqual(stats["compact_count"], 1)
+
+    def test_compact_count_ignores_initial_user_message(self):
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'summary',
+            'providerData': {'source': 'initial-user-message'},
+        })
+        self.assertEqual(stats["compact_count"], 0)
+
+    def test_compact_count_ignores_no_source(self):
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'summary',
+        })
+        self.assertEqual(stats["compact_count"], 0)
 
     def test_no_provider_data(self):
         stats = new_stats()
@@ -273,6 +317,11 @@ class TestIncrementalParsing(unittest.TestCase):
             for line in lines:
                 f.write(json.dumps(line) + '\n')
 
+    def _append_lines(self, lines):
+        with open(self.transcript_path, 'a') as f:
+            for line in lines:
+                f.write(json.dumps(line) + '\n')
+
     def test_basic_parse(self):
         self._write_lines([
             {'type': 'function_call', 'name': 'Bash'},
@@ -289,9 +338,10 @@ class TestIncrementalParsing(unittest.TestCase):
         stats1 = parse_transcript_incremental(self.transcript_path, "test-session")
         self.assertEqual(stats1["tool_counts"]["Bash"], 1)
 
-        with open(self.transcript_path, 'a') as f:
-            f.write(json.dumps({'type': 'function_call', 'name': 'Read'}) + '\n')
-            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+        self._append_lines([
+            {'type': 'function_call', 'name': 'Read'},
+            {'type': 'function_call', 'name': 'Bash'},
+        ])
 
         stats2 = parse_transcript_incremental(self.transcript_path, "test-session")
         self.assertEqual(stats2["tool_counts"]["Bash"], 2)
@@ -306,6 +356,278 @@ class TestIncrementalParsing(unittest.TestCase):
         stats = parse_transcript_incremental(self.transcript_path, "test-session")
         self.assertEqual(stats["tool_counts"], {})
 
+    def test_reasoning_and_credits_incremental(self):
+        self._write_lines([
+            {'type': 'message', 'providerData': {
+                'usage': {'inputTokens': 100, 'outputTokens': 50,
+                          'outputTokensDetails': [{'reasoning_tokens': 200}]},
+                'rawUsage': {'credit': 3.0},
+            }},
+        ])
+        stats1 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats1["total_reasoning"], 200)
+        self.assertEqual(stats1["total_credits"], 3.0)
+        self.assertEqual(stats1["request_count"], 1)
+
+        self._append_lines([
+            {'type': 'message', 'providerData': {
+                'usage': {'inputTokens': 200, 'outputTokens': 100,
+                          'outputTokensDetails': [{'reasoning_tokens': 100}]},
+                'rawUsage': {'credit': 2.0},
+            }},
+        ])
+        stats2 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats2["total_reasoning"], 300)
+        self.assertEqual(stats2["total_credits"], 5.0)
+        self.assertEqual(stats2["request_count"], 2)
+
+    def test_fast_path_at_eof(self):
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Bash'},
+        ])
+        stats1 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats1["tool_counts"]["Bash"], 1)
+        # Calling again with no new data should return the same stats
+        stats2 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats2["tool_counts"]["Bash"], 1)
+
+    def test_truncation_resets_stats(self):
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Bash'},
+            {'type': 'function_call', 'name': 'Read'},
+            {'type': 'function_call', 'name': 'Edit'},
+        ])
+        stats1 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats1["tool_counts"]["Bash"], 1)
+        self.assertEqual(stats1["tool_counts"]["Read"], 1)
+        self.assertEqual(stats1["tool_counts"]["Edit"], 1)
+
+        # Truncate (rewrite) the file with shorter content
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Glob'},
+        ])
+        stats2 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats2["tool_counts"]["Glob"], 1)
+        self.assertNotIn("Bash", stats2["tool_counts"])
+        self.assertNotIn("Read", stats2["tool_counts"])
+        self.assertNotIn("Edit", stats2["tool_counts"])
+
+    def test_agent_running_across_chunks(self):
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Agent'},
+        ])
+        stats1 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats1["running_agents"], 1)
+
+        self._append_lines([
+            {'type': 'function_call_result', 'name': 'Agent'},
+        ])
+        stats2 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats2["running_agents"], 0)
+
+    def test_multiple_agents_mixed_completion(self):
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Agent'},
+            {'type': 'function_call', 'name': 'Agent'},
+            {'type': 'function_call', 'name': 'Agent'},
+        ])
+        stats1 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats1["running_agents"], 3)
+
+        self._append_lines([
+            {'type': 'function_call_result', 'name': 'Agent'},
+            {'type': 'function_call_result', 'name': 'Agent'},
+        ])
+        stats2 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats2["running_agents"], 1)
+
+    def test_no_double_counting_across_calls(self):
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Bash'},
+        ])
+        stats1 = parse_transcript_incremental(self.transcript_path, "test-session")
+        stats2 = parse_transcript_incremental(self.transcript_path, "test-session")
+        stats3 = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats1["tool_counts"]["Bash"], 1)
+        self.assertEqual(stats2["tool_counts"]["Bash"], 1)
+        self.assertEqual(stats3["tool_counts"]["Bash"], 1)
+
+    def test_malformed_jsonl_lines_skipped(self):
+        with open(self.transcript_path, 'w') as f:
+            f.write('this is not json\n')
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+            f.write('{"broken json\n')
+        stats = parse_transcript_incremental(self.transcript_path, "test-session")
+        self.assertEqual(stats["tool_counts"]["Bash"], 1)
+
+    def test_empty_path(self):
+        stats = parse_transcript_incremental("", "test-session")
+        self.assertEqual(stats["tool_counts"], {})
+
+    def test_old_cache_obsolete_keys_removed(self):
+        """Regression: cache with keys no longer in new_stats() is cleaned up.
+        Currently all token fields (total_input etc.) are valid, but any
+        unknown future keys would be stripped on load."""
+        import statusline
+        # Write a transcript first so we can get its size for a valid offset
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Bash'},
+        ])
+        file_size = os.path.getsize(self.transcript_path)
+
+        old_cache = {
+            "stats": {
+                "total_input": 4626389,
+                "total_output": 8991,
+                "total_cache_read": 4561920,
+                "total_cache_write": 0,
+                "total_reasoning": 445,
+                "total_credits": 115.71,
+                "request_count": 104,
+                "tool_counts": {"Bash": 32},
+                "running_agents": 0,
+                "some_unknown_future_key": 999,
+            },
+            "main_offset": file_size,
+            "sub_offsets": {"agent-abc": 12345},
+        }
+        os.makedirs(self.cache_dir, exist_ok=True)
+        cache_path = os.path.join(self.cache_dir, "old-sess.json")
+        with open(cache_path, 'w') as f:
+            json.dump(old_cache, f)
+
+        # Append new data to the transcript
+        self._append_lines([
+            {'type': 'function_call', 'name': 'Read'},
+        ])
+
+        stats = parse_transcript_incremental(self.transcript_path, "old-sess")
+        # Known valid keys should be preserved
+        self.assertEqual(stats["total_reasoning"], 445)
+        self.assertEqual(stats["request_count"], 104)
+        self.assertEqual(stats["tool_counts"]["Bash"], 32)
+        self.assertEqual(stats["tool_counts"]["Read"], 1)
+        # Unknown keys should be removed
+        self.assertNotIn("some_unknown_future_key", stats)
+
+    def test_subagent_parsing(self):
+        """Sub-agent transcripts contribute to token/credit/tool counts."""
+        # Create a session directory structure with sub-agents
+        session_dir = os.path.join(self.tmpdir, "subagent-test-session")
+        subagents_dir = os.path.join(session_dir, "subagents")
+        os.makedirs(subagents_dir)
+        transcript_path = os.path.join(self.tmpdir, "subagent-test-session.jsonl")
+
+        # Main transcript
+        with open(transcript_path, 'w') as f:
+            f.write(json.dumps({
+                'type': 'message',
+                'providerData': {
+                    'usage': {'inputTokens': 1000, 'outputTokens': 500,
+                              'cacheReadInputTokens': 200, 'cacheWriteOutputTokens': 50},
+                    'rawUsage': {'credit': 3.0},
+                },
+            }) + '\n')
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+            f.write(json.dumps({'type': 'function_call', 'name': 'Agent', 'callId': 'a1'}) + '\n')
+
+        # Sub-agent transcript
+        with open(os.path.join(subagents_dir, "agent-abc123.jsonl"), 'w') as f:
+            f.write(json.dumps({
+                'type': 'message',
+                'providerData': {
+                    'usage': {'inputTokens': 500, 'outputTokens': 200,
+                              'cacheReadInputTokens': 100, 'cacheWriteOutputTokens': 0},
+                    'rawUsage': {'credit': 1.5},
+                },
+            }) + '\n')
+            f.write(json.dumps({'type': 'function_call', 'name': 'Read'}) + '\n')
+
+        stats = parse_transcript_incremental(transcript_path, "subagent-test-session")
+
+        # Token counts should include sub-agent
+        self.assertEqual(stats["total_input"], 1500)   # 1000 + 500
+        self.assertEqual(stats["total_output"], 700)    # 500 + 200
+        self.assertEqual(stats["total_cache_read"], 300)  # 200 + 100
+        self.assertEqual(stats["total_credits"], 4.5)   # 3.0 + 1.5
+        # Tools include sub-agent tools
+        self.assertEqual(stats["tool_counts"]["Bash"], 1)
+        self.assertEqual(stats["tool_counts"]["Agent"], 1)
+        self.assertEqual(stats["tool_counts"]["Read"], 1)
+        # running_agents only from main transcript
+        self.assertEqual(stats["running_agents"], 1)
+
+        # Sub-agent offset should be cached
+        cache = load_cache("subagent-test-session")
+        self.assertIn("sub_offsets", cache)
+        self.assertIn("agent-abc123", cache["sub_offsets"])
+
+    def test_subagent_incremental(self):
+        """Sub-agent incremental parsing only reads new lines."""
+        session_dir = os.path.join(self.tmpdir, "inc-sess")
+        subagents_dir = os.path.join(session_dir, "subagents")
+        os.makedirs(subagents_dir)
+        transcript_path = os.path.join(self.tmpdir, "inc-sess.jsonl")
+
+        # Main transcript
+        with open(transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+
+        stats1 = parse_transcript_incremental(transcript_path, "inc-sess")
+        self.assertEqual(stats1["tool_counts"]["Bash"], 1)
+
+        # Add sub-agent
+        with open(os.path.join(subagents_dir, "agent-xyz.jsonl"), 'w') as f:
+            f.write(json.dumps({
+                'type': 'message',
+                'providerData': {
+                    'usage': {'inputTokens': 500, 'outputTokens': 100},
+                },
+            }) + '\n')
+
+        stats2 = parse_transcript_incremental(transcript_path, "inc-sess")
+        self.assertEqual(stats2["total_input"], 500)
+        self.assertEqual(stats2["tool_counts"]["Bash"], 1)  # unchanged
+
+    def test_no_writes_in_steady_state(self):
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Bash'},
+        ])
+        parse_transcript_incremental(self.transcript_path, "test-session")
+
+        cache_files = sorted(os.listdir(self.cache_dir))
+        mtimes_before = {f: os.path.getmtime(os.path.join(self.cache_dir, f))
+                         for f in cache_files}
+
+        time.sleep(0.05)
+
+        parse_transcript_incremental(self.transcript_path, "test-session")
+
+        cache_files_after = sorted(os.listdir(self.cache_dir))
+        self.assertEqual(cache_files, cache_files_after)
+        for f in cache_files:
+            mtime_after = os.path.getmtime(os.path.join(self.cache_dir, f))
+            self.assertEqual(mtimes_before[f], mtime_after,
+                             f"{f} was rewritten despite no new data")
+
+    def test_writes_when_new_data(self):
+        self._write_lines([
+            {'type': 'function_call', 'name': 'Bash'},
+        ])
+
+        parse_transcript_incremental(self.transcript_path, "test-session")
+        mtime_before = os.path.getmtime(os.path.join(self.cache_dir, "test-session.json"))
+
+        time.sleep(0.05)
+
+        self._append_lines([
+            {'type': 'function_call', 'name': 'Read'},
+        ])
+
+        parse_transcript_incremental(self.transcript_path, "test-session")
+        mtime_after = os.path.getmtime(os.path.join(self.cache_dir, "test-session.json"))
+        self.assertGreater(mtime_after, mtime_before)
+
 
 class TestCacheOperations(unittest.TestCase):
     def setUp(self):
@@ -319,15 +641,15 @@ class TestCacheOperations(unittest.TestCase):
         statusline.CACHE_DIR = self._orig_cache_dir
         shutil.rmtree(self.tmpdir)
 
-    def test_save_and_load_unified(self):
-        """Unified cache stores stats, main_offset, and sub_offsets in one file."""
+    def test_save_and_load(self):
+        """Cache stores stats, main_offset, and sub_offsets."""
         stats = new_stats()
         stats["tool_counts"]["Bash"] = 5
-        save_cache("test-session", stats, 1024, {"agent-abc": 500})
+        save_cache("test-session", stats, 1024)
         cache = load_cache("test-session")
         self.assertIsNotNone(cache)
         self.assertEqual(cache["main_offset"], 1024)
-        self.assertEqual(cache["sub_offsets"], {"agent-abc": 500})
+        self.assertIn("sub_offsets", cache)
         self.assertEqual(cache["stats"]["tool_counts"]["Bash"], 5)
 
     def test_load_missing(self):
@@ -372,592 +694,12 @@ class TestCleanupOldCaches(unittest.TestCase):
         cleanup_old_caches("sess1")
         self.assertTrue(os.path.exists(path))
 
-    def test_preserves_legacy_split_caches(self):
-        """Legacy split offset cache files (with session_id_ prefix) should be preserved."""
-        for key in ["sess1_main_offset", "sess1_sub_offset_agent-abc"]:
-            path = os.path.join(self.tmpdir, f"{key}.json")
-            with open(path, 'w') as f:
-                json.dump({}, f)
-            old_time = time.time() - 8 * 86400
-            os.utime(path, (old_time, old_time))
-
-        cleanup_old_caches("sess1")
-        for key in ["sess1_main_offset", "sess1_sub_offset_agent-abc"]:
-            self.assertTrue(os.path.exists(os.path.join(self.tmpdir, f"{key}.json")))
-
     def test_ignores_non_json_files(self):
         path = os.path.join(self.tmpdir, "readme.txt")
         with open(path, 'w') as f:
             f.write("hello")
         cleanup_old_caches("other-session")
         self.assertTrue(os.path.exists(path))
-
-
-class TestMergeDelta(unittest.TestCase):
-    def test_merge_numeric(self):
-        stats = new_stats()
-        stats["total_input"] = 100
-        delta = new_stats()
-        delta["total_input"] = 50
-        delta["total_output"] = 20
-        _merge_delta(stats, delta)
-        self.assertEqual(stats["total_input"], 150)
-        self.assertEqual(stats["total_output"], 20)
-
-    def test_merge_dict(self):
-        stats = new_stats()
-        stats["tool_counts"]["Bash"] = 3
-        delta = new_stats()
-        delta["tool_counts"]["Bash"] = 2
-        delta["tool_counts"]["Read"] = 1
-        _merge_delta(stats, delta)
-        self.assertEqual(stats["tool_counts"]["Bash"], 5)
-        self.assertEqual(stats["tool_counts"]["Read"], 1)
-
-    def test_skip_keys(self):
-        stats = new_stats()
-        stats["total_input"] = 100
-        stats["running_agents"] = 2
-        delta = new_stats()
-        delta["total_input"] = 50
-        delta["running_agents"] = 1
-        _merge_delta(stats, delta, skip_keys={"running_agents"})
-        self.assertEqual(stats["total_input"], 150)
-        self.assertEqual(stats["running_agents"], 2)
-
-
-class TestSingleTranscriptIncremental(unittest.TestCase):
-    """Tests for _parse_single_transcript_incremental.
-
-    Note: this function now takes start_offset directly (not a cache_key),
-    and does not interact with any cache.
-    """
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir)
-
-    def _write_lines(self, path, lines):
-        with open(path, 'w') as f:
-            for line in lines:
-                f.write(json.dumps(line) + '\n')
-
-    def _append_lines(self, path, lines):
-        with open(path, 'a') as f:
-            for line in lines:
-                f.write(json.dumps(line) + '\n')
-
-    def test_reads_all_data_from_offset_0(self):
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [
-            {'type': 'function_call', 'name': 'Bash'},
-            {'type': 'function_call', 'name': 'Read'},
-        ])
-        delta, offset, truncated, has_new_data = _parse_single_transcript_incremental(path, 0)
-        self.assertEqual(delta["tool_counts"]["Bash"], 1)
-        self.assertEqual(delta["tool_counts"]["Read"], 1)
-        self.assertGreater(offset, 0)
-        self.assertFalse(truncated)
-        self.assertTrue(has_new_data)
-
-    def test_returns_empty_delta_at_eof(self):
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [
-            {'type': 'function_call', 'name': 'Bash'},
-        ])
-        # First read to get final offset
-        _, offset, _, _ = _parse_single_transcript_incremental(path, 0)
-        # Re-read from EOF — should return empty delta
-        delta, new_offset, _, has_new_data = _parse_single_transcript_incremental(path, offset)
-        self.assertEqual(delta["tool_counts"], {})
-        self.assertFalse(has_new_data)
-
-    def test_incremental_reads_only_new_lines(self):
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [
-            {'type': 'function_call', 'name': 'Bash'},
-        ])
-        delta1, offset1, _, _ = _parse_single_transcript_incremental(path, 0)
-        self.assertEqual(delta1["tool_counts"]["Bash"], 1)
-
-        self._append_lines(path, [
-            {'type': 'function_call', 'name': 'Read'},
-            {'type': 'function_call', 'name': 'Bash'},
-        ])
-        delta2, offset2, _, _ = _parse_single_transcript_incremental(path, offset1)
-        self.assertEqual(delta2["tool_counts"]["Bash"], 1)
-        self.assertEqual(delta2["tool_counts"]["Read"], 1)
-
-    def test_missing_file_returns_empty(self):
-        delta, offset, truncated, has_new_data = _parse_single_transcript_incremental("/nonexistent/path.jsonl", 0)
-        self.assertEqual(delta["tool_counts"], {})
-        self.assertEqual(delta["total_input"], 0)
-        self.assertEqual(offset, 0)
-        self.assertFalse(truncated)
-        self.assertFalse(has_new_data)
-
-    def test_empty_file(self):
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [])
-        delta, offset, truncated, has_new_data = _parse_single_transcript_incremental(path, 0)
-        self.assertEqual(delta["tool_counts"], {})
-        self.assertEqual(offset, 0)
-        self.assertFalse(truncated)
-        self.assertFalse(has_new_data)
-
-    def test_truncation_detected(self):
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [
-            {'type': 'function_call', 'name': 'Bash'},
-            {'type': 'function_call', 'name': 'Read'},
-        ])
-        # Pass a fake offset way past EOF
-        delta, offset, truncated, has_new_data = _parse_single_transcript_incremental(path, 999999)
-        self.assertTrue(truncated)
-        self.assertTrue(has_new_data)
-        # Should re-parse from offset 0
-        self.assertEqual(delta["tool_counts"]["Bash"], 1)
-        self.assertEqual(delta["tool_counts"]["Read"], 1)
-        self.assertGreater(offset, 0)
-
-    def test_eof_match_is_not_truncation(self):
-        """offset == filesize is normal EOF, not truncation."""
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [
-            {'type': 'function_call', 'name': 'Bash'},
-        ])
-        file_size = os.path.getsize(path)
-        delta, offset, truncated, has_new_data = _parse_single_transcript_incremental(path, file_size)
-        self.assertFalse(truncated)
-        self.assertFalse(has_new_data)
-
-    def test_corrupted_offset_type(self):
-        """Non-numeric offset should be treated as 0."""
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [
-            {'type': 'function_call', 'name': 'Bash'},
-        ])
-        delta, offset, truncated, has_new_data = _parse_single_transcript_incremental(path, "not-a-number")
-        self.assertEqual(delta["tool_counts"]["Bash"], 1)
-        self.assertTrue(has_new_data)
-
-    def test_returns_4tuple(self):
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [
-            {'type': 'function_call', 'name': 'Bash'},
-        ])
-        result = _parse_single_transcript_incremental(path, 0)
-        self.assertIsInstance(result, tuple)
-        self.assertEqual(len(result), 4)
-
-    def test_fast_path_at_eof_returns_zero_delta(self):
-        """Fast path: when start_offset == file_size, skip the open entirely."""
-        path = os.path.join(self.tmpdir, "test.jsonl")
-        self._write_lines(path, [
-            {'type': 'function_call', 'name': 'Bash'},
-        ])
-        file_size = os.path.getsize(path)
-        # The fast path should take effect — has_new_data should be False
-        delta, offset, truncated, has_new_data = _parse_single_transcript_incremental(path, file_size)
-        self.assertFalse(has_new_data)
-        self.assertEqual(offset, file_size)
-        self.assertEqual(delta["total_input"], 0)
-
-
-class TestSubagentParsing(unittest.TestCase):
-    """Tests for parse_transcript_incremental with sub-agent transcripts."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.cache_dir = os.path.join(self.tmpdir, "cache")
-        import statusline
-        self._orig_cache_dir = statusline.CACHE_DIR
-        statusline.CACHE_DIR = self.cache_dir
-
-    def tearDown(self):
-        import statusline
-        statusline.CACHE_DIR = self._orig_cache_dir
-        shutil.rmtree(self.tmpdir)
-
-    def _setup_session(self, session_id):
-        main_path = os.path.join(self.tmpdir, f"{session_id}.jsonl")
-        session_dir = os.path.join(self.tmpdir, session_id)
-        subagents_dir = os.path.join(session_dir, "subagents")
-        os.makedirs(subagents_dir, exist_ok=True)
-        return main_path, subagents_dir
-
-    def _write_lines(self, path, lines):
-        with open(path, 'w') as f:
-            for line in lines:
-                f.write(json.dumps(line) + '\n')
-
-    def _append_lines(self, path, lines):
-        with open(path, 'a') as f:
-            for line in lines:
-                f.write(json.dumps(line) + '\n')
-
-    def _make_entry(self, name='Bash', input_tokens=0, output_tokens=0, entry_type='function_call'):
-        entry = {'type': entry_type, 'name': name}
-        if input_tokens > 0 or output_tokens > 0:
-            entry['providerData'] = {
-                'usage': {'inputTokens': input_tokens, 'outputTokens': output_tokens}
-            }
-        return entry
-
-    def test_no_subagent_dir(self):
-        main_path, _ = self._setup_session("sess1")
-        shutil.rmtree(os.path.join(self.tmpdir, "sess1"))
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=50),
-        ])
-        stats = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats["total_input"], 100)
-        self.assertEqual(stats["total_output"], 50)
-        self.assertEqual(stats["tool_counts"]["Bash"], 1)
-
-    def test_single_subagent(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=50),
-            self._make_entry('Agent', entry_type='function_call'),
-        ])
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Read', input_tokens=200, output_tokens=30),
-            self._make_entry('Edit', input_tokens=150, output_tokens=20),
-        ])
-        stats = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats["total_input"], 450)
-        self.assertEqual(stats["total_output"], 100)
-        self.assertEqual(stats["tool_counts"]["Bash"], 1)
-        self.assertEqual(stats["tool_counts"]["Agent"], 1)
-        self.assertEqual(stats["tool_counts"]["Read"], 1)
-        self.assertEqual(stats["tool_counts"]["Edit"], 1)
-
-    def test_multiple_subagents(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Agent', entry_type='function_call'),
-            self._make_entry('Agent', entry_type='function_call'),
-        ])
-        sub1 = os.path.join(sub_dir, "agent-aaa.jsonl")
-        sub2 = os.path.join(sub_dir, "agent-bbb.jsonl")
-        self._write_lines(sub1, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=10),
-        ])
-        self._write_lines(sub2, [
-            self._make_entry('Read', input_tokens=200, output_tokens=20),
-        ])
-        stats = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats["total_input"], 300)
-        self.assertEqual(stats["total_output"], 30)
-        self.assertEqual(stats["tool_counts"]["Agent"], 2)
-        self.assertEqual(stats["tool_counts"]["Bash"], 1)
-        self.assertEqual(stats["tool_counts"]["Read"], 1)
-
-    def test_subagent_incremental(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Agent', entry_type='function_call'),
-        ])
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=10),
-        ])
-
-        stats1 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats1["total_input"], 100)
-        self.assertEqual(stats1["total_output"], 10)
-
-        self._append_lines(sub_path, [
-            self._make_entry('Read', input_tokens=200, output_tokens=20),
-        ])
-
-        stats2 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats2["total_input"], 300)
-        self.assertEqual(stats2["total_output"], 30)
-        self.assertEqual(stats2["tool_counts"]["Read"], 1)
-
-    def test_new_subagent_appears_mid_session(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Agent', entry_type='function_call'),
-        ])
-
-        stats1 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats1["tool_counts"]["Agent"], 1)
-        self.assertEqual(stats1["total_input"], 0)
-
-        sub_path = os.path.join(sub_dir, "agent-new.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Bash', input_tokens=500, output_tokens=50),
-        ])
-
-        stats2 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats2["total_input"], 500)
-        self.assertEqual(stats2["total_output"], 50)
-        self.assertEqual(stats2["tool_counts"]["Bash"], 1)
-
-    def test_no_double_counting_across_calls(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=10),
-        ])
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Read', input_tokens=200, output_tokens=20),
-        ])
-
-        stats1 = parse_transcript_incremental(main_path, "sess1")
-        stats2 = parse_transcript_incremental(main_path, "sess1")
-        stats3 = parse_transcript_incremental(main_path, "sess1")
-
-        self.assertEqual(stats1["total_input"], 300)
-        self.assertEqual(stats2["total_input"], 300)
-        self.assertEqual(stats3["total_input"], 300)
-        self.assertEqual(stats1["total_output"], 30)
-        self.assertEqual(stats3["total_output"], 30)
-        self.assertEqual(stats1["request_count"], stats3["request_count"])
-
-    def test_running_agents_from_main_only(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            {'type': 'function_call', 'name': 'Agent'},
-        ])
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            {'type': 'function_call', 'name': 'Agent'},
-        ])
-
-        stats = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats["running_agents"], 1)
-        self.assertEqual(stats["tool_counts"]["Agent"], 2)
-
-    def test_running_agents_decrement(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            {'type': 'function_call', 'name': 'Agent'},
-            {'type': 'function_call_result', 'name': 'Agent'},
-        ])
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Bash', input_tokens=50, output_tokens=5),
-        ])
-
-        stats = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats["running_agents"], 0)
-        self.assertEqual(stats["tool_counts"]["Agent"], 1)
-        self.assertEqual(stats["total_input"], 50)
-
-    def test_running_agents_decrement_across_chunks(self):
-        """Agent start in one chunk, complete in next — running_agents should go to 0."""
-        main_path, _ = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            {'type': 'function_call', 'name': 'Agent'},
-        ])
-        stats1 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats1["running_agents"], 1)
-
-        self._append_lines(main_path, [
-            {'type': 'function_call_result', 'name': 'Agent'},
-        ])
-        stats2 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats2["running_agents"], 0)
-
-    def test_multiple_agents_mixed_completion_across_chunks(self):
-        main_path, _ = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            {'type': 'function_call', 'name': 'Agent'},
-            {'type': 'function_call', 'name': 'Agent'},
-            {'type': 'function_call', 'name': 'Agent'},
-        ])
-        stats1 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats1["running_agents"], 3)
-
-        self._append_lines(main_path, [
-            {'type': 'function_call_result', 'name': 'Agent'},
-            {'type': 'function_call_result', 'name': 'Agent'},
-        ])
-        stats2 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats2["running_agents"], 1)
-
-    def test_unified_cache_format(self):
-        """The unified cache should contain stats, main_offset, and sub_offsets in one file."""
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=10),
-        ])
-        sub1 = os.path.join(sub_dir, "agent-aaa.jsonl")
-        sub2 = os.path.join(sub_dir, "agent-bbb.jsonl")
-        self._write_lines(sub1, [
-            self._make_entry('Read', input_tokens=50),
-        ])
-        self._write_lines(sub2, [
-            self._make_entry('Edit', input_tokens=80),
-        ])
-
-        parse_transcript_incremental(main_path, "sess1")
-
-        # Only ONE cache file should exist
-        cache_files = os.listdir(self.cache_dir)
-        self.assertEqual(cache_files, ["sess1.json"])
-
-        # Verify cache structure
-        cache = load_cache("sess1")
-        self.assertIn("stats", cache)
-        self.assertIn("main_offset", cache)
-        self.assertIn("sub_offsets", cache)
-        self.assertGreater(cache["main_offset"], 0)
-        self.assertIn("agent-aaa", cache["sub_offsets"])
-        self.assertIn("agent-bbb", cache["sub_offsets"])
-
-    def test_main_and_subagent_incremental_growth(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=10),
-        ])
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Read', input_tokens=50, output_tokens=5),
-        ])
-
-        stats1 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats1["total_input"], 150)
-
-        self._append_lines(main_path, [
-            self._make_entry('Edit', input_tokens=80, output_tokens=8),
-        ])
-        self._append_lines(sub_path, [
-            self._make_entry('Glob', input_tokens=40, output_tokens=4),
-        ])
-
-        stats2 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats2["total_input"], 270)
-        self.assertEqual(stats2["total_output"], 27)
-        self.assertEqual(stats2["tool_counts"]["Bash"], 1)
-        self.assertEqual(stats2["tool_counts"]["Edit"], 1)
-        self.assertEqual(stats2["tool_counts"]["Read"], 1)
-        self.assertEqual(stats2["tool_counts"]["Glob"], 1)
-
-    def test_non_jsonl_files_in_subagents_dir_ignored(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100),
-        ])
-        with open(os.path.join(sub_dir, "README.md"), 'w') as f:
-            f.write("not a transcript")
-        os.makedirs(os.path.join(sub_dir, "data.jsonl"), exist_ok=True)
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Read', input_tokens=50),
-        ])
-        stats = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats["total_input"], 150)
-        self.assertEqual(stats["tool_counts"]["Read"], 1)
-
-    def test_subagent_file_deleted_between_calls(self):
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100),
-        ])
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Read', input_tokens=50),
-        ])
-
-        stats1 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats1["total_input"], 150)
-
-        os.remove(sub_path)
-
-        stats2 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats2["total_input"], 150)
-        self.assertEqual(stats2["tool_counts"]["Read"], 1)
-
-    def test_malformed_jsonl_lines_skipped(self):
-        main_path, _ = self._setup_session("sess1")
-        with open(main_path, 'w') as f:
-            f.write('this is not json\n')
-            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
-            f.write('{"broken json\n')
-        stats = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats["tool_counts"]["Bash"], 1)
-
-    def test_main_transcript_truncation(self):
-        """If main transcript is rewritten shorter, stats reset to a full re-parse."""
-        main_path, _ = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=1000, output_tokens=100),
-            self._make_entry('Read', input_tokens=2000, output_tokens=200),
-            self._make_entry('Edit', input_tokens=500, output_tokens=50),
-        ])
-        stats1 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats1["total_input"], 3500)
-        self.assertEqual(stats1["request_count"], 3)
-
-        # Truncate (rewrite) the file with shorter content
-        self._write_lines(main_path, [
-            self._make_entry('Glob', input_tokens=42, output_tokens=4),
-        ])
-
-        stats2 = parse_transcript_incremental(main_path, "sess1")
-        self.assertEqual(stats2["total_input"], 42)
-        self.assertEqual(stats2["total_output"], 4)
-        self.assertEqual(stats2["request_count"], 1)
-        self.assertEqual(stats2["tool_counts"]["Glob"], 1)
-        self.assertNotIn("Bash", stats2["tool_counts"])
-        self.assertNotIn("Read", stats2["tool_counts"])
-        self.assertNotIn("Edit", stats2["tool_counts"])
-
-    def test_no_writes_in_steady_state(self):
-        """When no new data, repeated calls should not modify cache files."""
-        main_path, sub_dir = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=10),
-        ])
-        sub_path = os.path.join(sub_dir, "agent-abc.jsonl")
-        self._write_lines(sub_path, [
-            self._make_entry('Read', input_tokens=50, output_tokens=5),
-        ])
-
-        parse_transcript_incremental(main_path, "sess1")
-
-        cache_files = sorted(os.listdir(self.cache_dir))
-        mtimes_before = {f: os.path.getmtime(os.path.join(self.cache_dir, f))
-                         for f in cache_files}
-
-        time.sleep(0.05)
-
-        parse_transcript_incremental(main_path, "sess1")
-
-        cache_files_after = sorted(os.listdir(self.cache_dir))
-        self.assertEqual(cache_files, cache_files_after)
-        for f in cache_files:
-            mtime_after = os.path.getmtime(os.path.join(self.cache_dir, f))
-            self.assertEqual(mtimes_before[f], mtime_after,
-                             f"{f} was rewritten despite no new data")
-
-    def test_writes_when_new_data(self):
-        """When new data appears, cache should be updated."""
-        main_path, _ = self._setup_session("sess1")
-        self._write_lines(main_path, [
-            self._make_entry('Bash', input_tokens=100, output_tokens=10),
-        ])
-
-        parse_transcript_incremental(main_path, "sess1")
-        mtime_before = os.path.getmtime(os.path.join(self.cache_dir, "sess1.json"))
-
-        time.sleep(0.05)
-
-        self._append_lines(main_path, [
-            self._make_entry('Read', input_tokens=50, output_tokens=5),
-        ])
-
-        parse_transcript_incremental(main_path, "sess1")
-        mtime_after = os.path.getmtime(os.path.join(self.cache_dir, "sess1.json"))
-        self.assertGreater(mtime_after, mtime_before)
 
 
 class TestAutoUpdate(unittest.TestCase):
@@ -1047,6 +789,110 @@ class TestAutoUpdate(unittest.TestCase):
         elapsed_ms = (time.perf_counter() - t) * 1000
         # Even with fork() overhead, should return well under 100ms
         self.assertLess(elapsed_ms, 100, f"maybe_auto_update took {elapsed_ms:.1f}ms")
+
+
+class TestMainNullSafety(unittest.TestCase):
+    """Regression tests: CodeBuddy may send null for model/cost/context_window."""
+
+    def _run_main(self, input_data):
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, os.path.join(os.path.dirname(__file__), 'statusline.py')],
+            input=json.dumps(input_data),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result
+
+    def test_null_cost(self):
+        r = self._run_main({"cost": None, "session_id": "t", "transcript_path": ""})
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+
+    def test_null_model(self):
+        r = self._run_main({"model": None, "session_id": "t", "transcript_path": ""})
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+
+    def test_null_context_window(self):
+        r = self._run_main({"context_window": None, "session_id": "t", "transcript_path": ""})
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+
+    def test_null_current_usage(self):
+        r = self._run_main({
+            "context_window": {"used_percentage": 50, "current_usage": None},
+            "session_id": "t", "transcript_path": "",
+        })
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+
+    def test_all_null(self):
+        r = self._run_main({
+            "model": None, "cost": None, "context_window": None,
+            "session_id": "", "transcript_path": "",
+        })
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+
+    def test_empty_object(self):
+        r = self._run_main({})
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+
+    def test_normal_data_still_works(self):
+        r = self._run_main({
+            "model": {"display_name": "TestModel"},
+            "context_window": {
+                "used_percentage": 60,
+                "context_window_size": 200000,
+                "current_usage": {"input_tokens": 100000, "cache_read_input_tokens": 50000},
+                "total_input_tokens": 1500000,
+                "total_output_tokens": 50000,
+            },
+            "cost": {"total_cost_usd": 0.05, "total_duration_ms": 30000},
+            "session_id": "t", "transcript_path": "",
+        })
+        self.assertEqual(r.returncode, 0)
+        # Strip ANSI escape codes for assertion
+        import re
+        plain = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
+        self.assertIn("TestModel", plain)
+        self.assertIn("In:1.5M", plain)
+
+    def test_compact_count_in_output(self):
+        """End-to-end: Compact×N appears in statusline output when compactions occurred."""
+        # Create a transcript with compact events
+        tmpdir = tempfile.mkdtemp()
+        transcript = os.path.join(tmpdir, "compact-test.jsonl")
+        with open(transcript, 'w') as f:
+            # initial summary (should NOT count)
+            f.write(json.dumps({
+                'type': 'summary',
+                'providerData': {'source': 'initial-user-message'},
+            }) + '\n')
+            # 3 compact events
+            for src in ['periodic', 'pre-compact', 'periodic']:
+                f.write(json.dumps({
+                    'type': 'summary',
+                    'providerData': {'source': src},
+                }) + '\n')
+            # some tool calls
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+
+        try:
+            r = self._run_main({
+                "context_window": {
+                    "used_percentage": 50,
+                    "context_window_size": 200000,
+                    "current_usage": {"input_tokens": 50000},
+                    "total_input_tokens": 50000,
+                    "total_output_tokens": 1000,
+                },
+                "session_id": "compact-test",
+                "transcript_path": transcript,
+            })
+            self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+            import re
+            plain = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
+            self.assertIn("Compact×3", plain)
+        finally:
+            shutil.rmtree(tmpdir)
 
 
 if __name__ == '__main__':

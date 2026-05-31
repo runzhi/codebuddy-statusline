@@ -3,8 +3,8 @@
 CodeBuddy Code Cost Monitor - Statusline Script (Incremental)
 Displays real-time cost, token usage, context progress, tools usage, and request stats.
 
-Uses incremental parsing for token/tool stats from transcript, and reads
-context_window data directly from the statusline JSON input.
+Uses incremental parsing for all metrics from main + sub-agent transcripts.
+In/Out/Cache/Credits include sub-agent data for a complete picture.
 """
 
 import json
@@ -106,6 +106,7 @@ def new_stats():
         "request_count": 0,
         "tool_counts": {},
         "running_agents": 0,
+        "compact_count": 0,
     }
 
 def add_line_to_stats(stats, data):
@@ -123,7 +124,13 @@ def add_line_to_stats(stats, data):
     elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
         stats["running_agents"] -= 1
 
-    # Token usage
+    # Count context compaction events
+    elif entry_type == 'summary':
+        pd = data.get('providerData', {})
+        if isinstance(pd, dict) and pd.get('source') not in ('initial-user-message', None):
+            stats["compact_count"] += 1
+
+    # Token usage — In/Out/Cache/Think/Credits from providerData
     pd = data.get('providerData', {})
     if not isinstance(pd, dict):
         return
@@ -136,23 +143,17 @@ def add_line_to_stats(stats, data):
 
     input_tokens = usage.get('inputTokens', 0) or 0
     output_tokens = usage.get('outputTokens', 0) or 0
+    cache_read = usage.get('cacheReadInputTokens', 0) or 0
+    cache_write = usage.get('cacheWriteOutputTokens', 0) or 0
 
-    cache_read = sum(
-        detail.get('cached_tokens', 0) or 0
-        for detail in (usage.get('inputTokensDetails') or [])
-    )
     reasoning = sum(
         detail.get('reasoning_tokens', 0) or 0
         for detail in (usage.get('outputTokensDetails') or [])
     )
 
+    credit = 0
     if raw_usage:
-        cache_read = raw_usage.get('prompt_cache_hit_tokens', cache_read) or cache_read
-        cache_write = raw_usage.get('cache_creation_input_tokens', 0) or 0
         credit = raw_usage.get('credit', 0) or 0
-    else:
-        cache_write = 0
-        credit = 0
 
     if input_tokens > 0 or output_tokens > 0:
         stats["total_input"] += input_tokens
@@ -164,13 +165,12 @@ def add_line_to_stats(stats, data):
         stats["request_count"] += 1
 
 def load_cache(session_id):
-    """Load the unified cache for a session.
+    """Load the cache for a session.
 
-    The unified cache file ({session_id}.json) contains:
+    The cache file ({session_id}.json) contains:
         {
             "stats": {...accumulated stats...},
-            "main_offset": <int>,
-            "sub_offsets": {"agent-abc": <int>, ...}
+            "main_offset": <int>
         }
 
     Returns the parsed dict, or None if the file is missing/corrupt.
@@ -182,15 +182,8 @@ def load_cache(session_id):
     except (IOError, json.JSONDecodeError, KeyError):
         return None
 
-def save_cache(session_id, stats, main_offset, sub_offsets):
-    """Save the unified cache for a session.
-
-    Args:
-        session_id: Session identifier (used as cache filename).
-        stats: Accumulated stats dict.
-        main_offset: Byte offset into the main transcript.
-        sub_offsets: Dict mapping sub-agent name to byte offset.
-    """
+def save_cache(session_id, stats, main_offset, sub_offsets=None):
+    """Save the cache for a session."""
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_path = os.path.join(CACHE_DIR, f"{session_id}.json")
     try:
@@ -198,7 +191,7 @@ def save_cache(session_id, stats, main_offset, sub_offsets):
             json.dump({
                 "stats": stats,
                 "main_offset": main_offset,
-                "sub_offsets": sub_offsets,
+                "sub_offsets": sub_offsets or {},
             }, f)
     except IOError:
         pass
@@ -307,9 +300,8 @@ def cleanup_old_caches(current_session_id):
                 continue
             fpath = os.path.join(CACHE_DIR, fname)
             key = fname[:-5]  # strip .json
-            # Protect current session's cache (and any legacy split caches
-            # that started with the session_id prefix)
-            if key == current_session_id or key.startswith(current_session_id + "_"):
+            # Protect current session's cache
+            if key == current_session_id:
                 continue
             try:
                 if now - os.path.getmtime(fpath) > max_age:
@@ -319,116 +311,28 @@ def cleanup_old_caches(current_session_id):
     except OSError:
         pass
 
-def _parse_single_transcript_incremental(transcript_path, start_offset):
-    """Parse a single transcript file incrementally from start_offset.
-
-    Handles file truncation: if start_offset is beyond the current file size
-    (e.g., file was rewritten or truncated), re-parses from offset 0.
-
-    Returns:
-        A tuple of (delta_stats, new_offset, truncated, has_new_data) where:
-        - delta_stats: stats dict with new token/tool data from this read
-        - new_offset: byte position after the last line read (0 on error)
-        - truncated: True if the file was detected as truncated (caller
-          should reset accumulated stats since delta_stats is a full
-          re-parse from offset 0, not an incremental delta)
-        - has_new_data: True if any data was actually read from the file.
-    """
-    new_stats_data = new_stats()
-
-    if not transcript_path:
-        return new_stats_data, 0, False, False
-
-    # Validate offset type to handle corrupted cache (e.g., {"offset": "abc"})
-    if not isinstance(start_offset, (int, float)):
-        start_offset = 0
-
-    truncated = False
-    try:
-        # Use os.path.getsize as the existence check (single stat call).
-        # If the file doesn't exist, raises OSError caught below.
-        file_size = os.path.getsize(transcript_path)
-
-        # Fast path: file size unchanged since last read — nothing new.
-        # Skips the open()/seek()/iterate() syscalls entirely. This is the
-        # common case in steady state for sub-agents that have completed.
-        if start_offset == file_size and start_offset > 0:
-            return new_stats_data, start_offset, False, False
-
-        # Detect truncation: cached offset is past current EOF
-        if start_offset > file_size:
-            start_offset = 0
-            truncated = True
-
-        with open(transcript_path, 'r', encoding='utf-8') as f:
-            if start_offset > 0:
-                f.seek(start_offset)
-            has_new_data = False
-            for line in f:
-                has_new_data = True
-                # Cheap string pre-filter: skip lines that don't contain any
-                # of the markers we care about. Most transcript lines are
-                # assistant text messages or tool results we don't track.
-                # Avoids the json.loads cost for ~75% of lines on cold parses.
-                if ('function_call' not in line
-                        and 'providerData' not in line):
-                    continue
-                try:
-                    data = json.loads(line)
-                    add_line_to_stats(new_stats_data, data)
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    continue
-
-            new_offset = f.tell()
-
-        return new_stats_data, new_offset, truncated, has_new_data
-
-    except (IOError, OSError):
-        return new_stats_data, 0, False, False
-
-
-def _merge_delta(stats, delta, skip_keys=None):
-    """Merge a delta stats dict into stats, adding numeric values and merging dicts."""
-    skip_keys = skip_keys or set()
-    for key in stats:
-        if key in skip_keys:
-            continue
-        if isinstance(stats[key], (int, float)):
-            stats[key] += delta[key]
-        elif isinstance(stats[key], dict):
-            for k, v in delta[key].items():
-                stats[key][k] = stats[key].get(k, 0) + v
-
-
 def parse_transcript_incremental(transcript_path, session_id):
-    """Parse transcript incrementally, only reading new lines since last run.
+    """Parse main + sub-agent transcripts incrementally.
 
-    Also scans subagents/ directory for child agent transcripts and merges
-    their token/tool stats into the total.
-
-    All cache state (accumulated stats, main offset, sub-agent offsets) is
-    stored in a single unified cache file per session, reducing I/O from
-    2+N file opens to 1 in steady state.
-
-    Note: running_agents is a gauge (not a counter), computed only from the
-    main transcript's delta. Sub-agent deltas may contain their own Agent
-    calls, but those don't affect the top-level running count.
+    Extracts In/Out/Cache/Think/Credits/Req/Tools/Compact from all transcripts.
+    Sub-agents contribute to token/credit/tool counts but NOT to
+    running_agents or compact_count (those are main-transcript-only gauges).
 
     Skip-write: if no new data was found, skip writing the cache entirely.
-    This avoids unnecessary I/O in steady state and eliminates the crash
-    window for over-counts when nothing changed.
-
-    Truncation handling: if the main transcript was truncated, the accumulated
-    stats are discarded and replaced with a full re-parse. If a sub-agent
-    was truncated, its delta is merged but a flag is set so the cache is
-    still written (preventing a stuck state).
+    Truncation handling: if any transcript was truncated, discard all cached
+    stats and re-parse everything from scratch. This avoids double-counting
+    when we can't subtract old per-sub-agent contributions.
     """
     stats = new_stats()
 
     if not transcript_path:
         return stats
 
-    # Load unified cache (single file open in steady state)
+    # Determine sub-agent directory
+    session_dir = transcript_path[:-6] if transcript_path.endswith('.jsonl') else transcript_path
+    subagents_dir = os.path.join(session_dir, "subagents")
+
+    # Load cache
     cache = load_cache(session_id)
     previous_running_agents = 0
     main_offset = 0
@@ -436,62 +340,172 @@ def parse_transcript_incremental(transcript_path, session_id):
     if cache:
         if "stats" in cache and isinstance(cache["stats"], dict):
             stats = cache["stats"]
+            # Backfill new fields and remove obsolete keys
+            valid_keys = set(new_stats().keys())
+            for key, default in new_stats().items():
+                if key not in stats:
+                    stats[key] = default if not isinstance(default, dict) else dict(default)
+            for obsolete in list(stats.keys()):
+                if obsolete not in valid_keys:
+                    del stats[obsolete]
             previous_running_agents = stats.get("running_agents", 0)
         if "main_offset" in cache and isinstance(cache["main_offset"], (int, float)):
             main_offset = cache["main_offset"]
         if "sub_offsets" in cache and isinstance(cache["sub_offsets"], dict):
-            sub_offsets = dict(cache["sub_offsets"])
+            sub_offsets = cache["sub_offsets"]
 
     any_new_data = False
     any_truncated = False
 
-    # Parse main transcript for new data
-    main_delta, main_new_offset, main_truncated, main_has_new_data = (
-        _parse_single_transcript_incremental(transcript_path, main_offset)
-    )
-    if main_truncated:
-        # Main was truncated: discard cached stats; main_delta is a full re-parse
-        any_truncated = True
-        stats = main_delta
-        previous_running_agents = 0
-        sub_offsets = {}  # also reset sub-offsets — full re-parse implies fresh start
-        stats["running_agents"] = max(0, stats["running_agents"])
-    else:
-        _merge_delta(stats, main_delta, skip_keys={"running_agents"})
-        # running_agents is a gauge — compute from previous + delta, clamped to >= 0
-        stats["running_agents"] = max(0, main_delta["running_agents"] + previous_running_agents)
-    if main_has_new_data:
-        any_new_data = True
-    if main_new_offset > 0:
-        main_offset = main_new_offset
+    # Validate offset type to handle corrupted cache
+    if not isinstance(main_offset, (int, float)):
+        main_offset = 0
 
-    # Parse sub-agent transcripts
-    # Directory structure: {session_id}.jsonl (main) and {session_id}/subagents/ (sub-agents)
-    if transcript_path.endswith('.jsonl'):
-        session_dir = transcript_path[:-6]  # strip .jsonl
-    else:
-        session_dir = transcript_path
-    subagents_dir = os.path.join(session_dir, 'subagents')
+    # --- Check for truncation across all transcripts ---
+    need_full_reparse = False
+
+    try:
+        file_size = os.path.getsize(transcript_path)
+        if main_offset > file_size:
+            need_full_reparse = True
+    except (IOError, OSError):
+        pass
+
+    if not need_full_reparse and os.path.isdir(subagents_dir):
+        try:
+            for fname in os.listdir(subagents_dir):
+                if not fname.endswith('.jsonl'):
+                    continue
+                agent_key = fname[:-6]
+                sub_offset = sub_offsets.get(agent_key, 0)
+                if not isinstance(sub_offset, (int, float)):
+                    sub_offset = 0
+                sub_path = os.path.join(subagents_dir, fname)
+                try:
+                    if sub_offset > os.path.getsize(sub_path):
+                        need_full_reparse = True
+                        break
+                except (IOError, OSError):
+                    pass
+        except OSError:
+            pass
+
+    # --- Full re-parse: discard cache, parse everything from offset 0 ---
+    if need_full_reparse:
+        any_truncated = True
+        main_offset = 0
+        sub_offsets = {}
+        stats = new_stats()
+        previous_running_agents = 0
+
+    # --- Parse main transcript ---
+    try:
+        file_size = os.path.getsize(transcript_path)
+
+        # Fast path: no new data in main transcript
+        if main_offset == file_size and main_offset > 0:
+            pass
+        else:
+            delta = new_stats()
+            with open(transcript_path, 'r', encoding='utf-8') as f:
+                if main_offset > 0:
+                    f.seek(main_offset)
+                has_new_data = False
+                for line in f:
+                    has_new_data = True
+                    if ('function_call' not in line
+                            and 'providerData' not in line
+                            and '"summary"' not in line):
+                        continue
+                    try:
+                        data = json.loads(line)
+                        add_line_to_stats(delta, data)
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        continue
+
+                new_offset = f.tell()
+
+            if has_new_data:
+                any_new_data = True
+
+            if need_full_reparse:
+                # Stats were reset; delta IS the new stats
+                stats = delta
+                stats["running_agents"] = max(0, stats["running_agents"])
+            else:
+                # Merge delta into existing stats
+                for key in delta:
+                    if key == "running_agents":
+                        continue
+                    if isinstance(delta[key], (int, float)):
+                        stats[key] = stats.get(key, 0) + delta[key]
+                    elif isinstance(delta[key], dict):
+                        for k, v in delta[key].items():
+                            stats.setdefault(key, {})
+                            stats[key][k] = stats[key].get(k, 0) + v
+                stats["running_agents"] = max(0, delta["running_agents"] + previous_running_agents)
+
+            if new_offset > 0:
+                main_offset = new_offset
+
+    except (IOError, OSError):
+        pass
+
+    # --- Parse sub-agent transcripts ---
     if os.path.isdir(subagents_dir):
         try:
             for fname in os.listdir(subagents_dir):
                 if not fname.endswith('.jsonl'):
                     continue
+                agent_key = fname[:-6]
                 sub_path = os.path.join(subagents_dir, fname)
-                if not os.path.isfile(sub_path):
-                    continue
-                sub_key = fname[:-6]  # strip .jsonl, use as dict key
-                start_offset = sub_offsets.get(sub_key, 0)
-                sub_delta, sub_new_offset, sub_truncated, sub_has_new_data = (
-                    _parse_single_transcript_incremental(sub_path, start_offset)
-                )
-                if sub_truncated:
-                    any_truncated = True
-                _merge_delta(stats, sub_delta, skip_keys={"running_agents"})
-                if sub_has_new_data:
-                    any_new_data = True
-                if sub_new_offset > 0:
-                    sub_offsets[sub_key] = sub_new_offset
+                sub_offset = sub_offsets.get(agent_key, 0)
+                if not isinstance(sub_offset, (int, float)):
+                    sub_offset = 0
+
+                try:
+                    sub_size = os.path.getsize(sub_path)
+
+                    if sub_offset == sub_size and sub_offset > 0:
+                        continue
+
+                    sub_delta = new_stats()
+                    with open(sub_path, 'r', encoding='utf-8') as f:
+                        if sub_offset > 0:
+                            f.seek(sub_offset)
+                        sub_has_new = False
+                        for line in f:
+                            sub_has_new = True
+                            if ('function_call' not in line
+                                    and 'providerData' not in line
+                                    and '"summary"' not in line):
+                                continue
+                            try:
+                                data = json.loads(line)
+                                add_line_to_stats(sub_delta, data)
+                            except (json.JSONDecodeError, KeyError, TypeError):
+                                continue
+                        new_sub_offset = f.tell()
+
+                    if sub_has_new:
+                        any_new_data = True
+
+                    # Merge sub-agent delta into main stats
+                    # Sub-agents contribute tokens/credits/tools but NOT running_agents/compact_count
+                    for key in sub_delta:
+                        if key in ("running_agents", "compact_count"):
+                            continue
+                        if isinstance(sub_delta[key], (int, float)):
+                            stats[key] = stats.get(key, 0) + sub_delta[key]
+                        elif isinstance(sub_delta[key], dict):
+                            for k, v in sub_delta[key].items():
+                                stats.setdefault(key, {})
+                                stats[key][k] = stats[key].get(k, 0) + v
+
+                    sub_offsets[agent_key] = new_sub_offset
+
+                except (IOError, OSError):
+                    pass
         except OSError:
             pass
 
@@ -500,8 +514,6 @@ def parse_transcript_incremental(transcript_path, session_id):
         save_cache(session_id, stats, main_offset, sub_offsets)
 
     # Cleanup old caches ~1% of the time to avoid O(n) scan every 300ms.
-    # Use time-based pseudo-randomness to avoid importing the `random` module
-    # (saves ~1.2ms on cold start). 97 is prime and coprime to 300_000_000ns.
     if time.time_ns() % 97 < 1:
         cleanup_old_caches(session_id)
 
@@ -554,21 +566,21 @@ def main():
     except Exception:
         input_data = {}
 
-    model = input_data.get('model', {})
+    model = input_data.get('model') or {}
     model_name = model.get('display_name', '')
-    cost = input_data.get('cost', {})
+    cost = input_data.get('cost') or {}
     transcript_path = input_data.get('transcript_path', '')
     session_id = input_data.get('session_id', '')
 
     # Context window data (provided by CodeBuddy Code)
-    ctx = input_data.get('context_window', {})
+    ctx = input_data.get('context_window') or {}
 
     total_cost = cost.get('total_cost_usd', 0) or 0
     duration_ms = cost.get('total_duration_ms', 0) or 0
     lines_added = cost.get('total_lines_added', 0) or 0
     lines_removed = cost.get('total_lines_removed', 0) or 0
 
-    # Incremental parse for token and tool stats
+    # Incremental parse for all metrics from main + sub-agent transcripts
     stats = parse_transcript_incremental(transcript_path, session_id)
 
     parts = []
@@ -579,7 +591,7 @@ def main():
     # Context progress bar
     used_pct = ctx.get('used_percentage')
     ctx_size = ctx.get('context_window_size', 0) or 0
-    current_usage = ctx.get('current_usage', {})
+    current_usage = ctx.get('current_usage') or {}
     current_tokens = 0
     if isinstance(current_usage, dict):
         current_tokens = current_usage.get('input_tokens', 0) or 0
@@ -598,25 +610,28 @@ def main():
         ctx_part = f"{bar_color}▕{bar}▏{NC}{DIM}{pct_display}%{NC}"
         if ctx_str:
             ctx_part += f" {DIM}{ctx_str}{NC}"
+        if stats.get('compact_count', 0) > 0:
+            ctx_part += f" {YELLOW}Compact×{stats['compact_count']}{NC}"
         parts.append(ctx_part)
 
     # Token usage display.
-    # `In` shows the total prompt size (inputTokens), matching CodeBuddy's
-    # built-in display. `Cache` shows the cached portion (cache hits) which
-    # is a subset of `In` — i.e. In already includes Cache. We don't subtract
-    # Cache from In because users compare against the system's display, which
-    # uses the raw inputTokens value.
+    # In/Out/Cache come from transcript parsing (main + sub-agents).
+    # Falls back to CodeBuddy's context_window values if transcript has no data.
+    display_in = stats.get('total_input', 0) or ctx.get('total_input_tokens') or 0
+    display_out = stats.get('total_output', 0) or ctx.get('total_output_tokens') or 0
+    display_cache = stats.get('total_cache_read', 0)
+
     token_parts = [
-        f"{GREEN}In:{NC}{format_tokens(stats['total_input'])}",
-        f"{GREEN}Out:{NC}{format_tokens(stats['total_output'])}",
+        f"{GREEN}In:{NC}{format_tokens(display_in)}",
+        f"{GREEN}Out:{NC}{format_tokens(display_out)}",
     ]
-    if stats['total_cache_read'] > 0:
-        token_parts.append(f"{DIM}Cache:{NC}{format_tokens(stats['total_cache_read'])}")
-    if stats['total_reasoning'] > 0:
+    if display_cache > 0:
+        token_parts.append(f"{DIM}Cache:{NC}{format_tokens(display_cache)}")
+    if stats.get('total_reasoning', 0) > 0:
         token_parts.append(f"{DIM}Think:{NC}{format_tokens(stats['total_reasoning'])}")
     parts.append(" ".join(token_parts))
 
-    if stats['request_count'] > 0:
+    if stats.get('request_count', 0) > 0:
         parts.append(f"{CYAN}Req:{NC}{stats['request_count']}")
 
     cost_str = format_cost(total_cost)
@@ -629,7 +644,7 @@ def main():
             cost_color = RED
         parts.append(f"{cost_color}Cost:{NC}{cost_str}")
 
-    if stats['total_credits'] > 0:
+    if stats.get('total_credits', 0) > 0:
         parts.append(f"{YELLOW}Credits:{NC}{stats['total_credits']:.2f}")
 
     duration_str = format_duration(duration_ms)
@@ -642,7 +657,7 @@ def main():
     output = " | ".join(parts)
 
     # Line 2: Tools (with Agent running/completed status)
-    tool_str = format_tools(stats['tool_counts'], stats['running_agents'])
+    tool_str = format_tools(stats.get('tool_counts', {}), stats.get('running_agents', 0))
     if tool_str:
         output += f"\n{tool_str}"
 
@@ -656,4 +671,9 @@ def main():
         pass
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as e:
+        # Global safety net: if anything crashes, still output something
+        # so the statusline never goes blank silently.
+        print(f"{RED}ERR:{NC}{type(e).__name__}: {e}")
