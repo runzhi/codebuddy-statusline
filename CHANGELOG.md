@@ -4,6 +4,12 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.1] - 2026-06-01
+
+### 变更 (Changed)
+
+- **Compact 显示更名为 Auto-Compact**：状态栏中 `Compact×N` 改为 `Auto-Compact×N`，更准确地表达 `pre-compact` 事件是自动压缩而非手动触发。
+
 ## [1.3.0] - 2026-05-31
 
 ### 新增 (Added)
