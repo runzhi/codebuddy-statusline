@@ -622,7 +622,7 @@ def main():
         if ctx_str:
             ctx_part += f" {DIM}{ctx_str}{NC}"
         if stats.get('compact_count', 0) > 0:
-            ctx_part += f" {YELLOW}Compact×{stats['compact_count']}{NC}"
+            ctx_part += f" {YELLOW}Auto-Compact×{stats['compact_count']}{NC}"
         if stats.get('periodic_count', 0) > 0:
             ctx_part += f" {DIM}Periodic×{stats['periodic_count']}{NC}"
         parts.append(ctx_part)
