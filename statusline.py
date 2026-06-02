@@ -508,8 +508,13 @@ def parse_transcript_incremental(transcript_path, session_id):
                 stats["running_agents"] = max(0, stats["running_agents"])
             else:
                 # Merge delta into existing stats
+                # last_* fields are "last value" not cumulative, so overwrite instead of accumulate
+                _LAST_KEYS = ("last_input", "last_output", "last_cache_read")
                 for key in delta:
                     if key == "running_agents":
+                        continue
+                    if key in _LAST_KEYS:
+                        stats[key] = delta[key]
                         continue
                     if isinstance(delta[key], (int, float)):
                         stats[key] = stats.get(key, 0) + delta[key]
@@ -570,8 +575,13 @@ def parse_transcript_incremental(transcript_path, session_id):
 
                     # Merge sub-agent delta into main stats
                     # Sub-agents contribute tokens/credits/tools but NOT running_agents/compact_count/periodic_count
+                    # last_* fields are overwritten (last value wins, not cumulative)
+                    _LAST_KEYS = ("last_input", "last_output", "last_cache_read")
                     for key in sub_delta:
                         if key in ("running_agents", "compact_count", "periodic_count"):
+                            continue
+                        if key in _LAST_KEYS:
+                            stats[key] = sub_delta[key]
                             continue
                         if isinstance(sub_delta[key], (int, float)):
                             stats[key] = stats.get(key, 0) + sub_delta[key]
