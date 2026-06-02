@@ -9,7 +9,7 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实
 ```
 GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K Auto-Compact×2 Periodic×3 | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.023 | Credits:67.20 | Time:45s | +156/-23
 Tools: ✓ Bash×15 | ✓ Read×2 | ✓ Edit×2 | ✓ Agent | ↑ Agent×2
-Recent: In:3.2K Out:856 Cache:2.1K(65%) | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
+Recent: In:3.2K Out:856 Cache:2.1K(65%) Credits:1.50 Cost:$0.003 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
 ```
 
 ### 第一行：概览
@@ -74,7 +74,7 @@ Agent 在工具行中内联显示，区分运行中和已完成：
 标题 `Recent:` 使用暗淡样式显示。左侧展示最近一次 API 交互的 Token 明细和 Cache 命中率，右侧展示最近 3 次工具调用的名称及参数摘要，用 `|` 分隔：
 
 ```
-Recent: In:3.2K Out:856 Cache:2.1K(65%) | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
+Recent: In:3.2K Out:856 Cache:2.1K(65%) Credits:1.50 Cost:$0.003 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
 ```
 
 **最近一次交互详情：**
