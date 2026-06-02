@@ -156,8 +156,23 @@ Git-clone 安装模式下，完整版 `statusline.py` 内置了**每天最多一
 
 ## 卸载
 
+**Git Clone 安装模式：**
+
 ```bash
 bash ~/.codebuddy/statusline/uninstall.sh
+```
+
+**Marketplace 插件安装模式：**
+
+```bash
+# 1. 移除 statusLine 配置
+/statusline:uninstall
+
+# 2. 卸载插件
+/plugin uninstall statusline@four-harness
+
+# 3. 清理缓存（可选）
+rm -rf ~/.codebuddy/plugins/data/statusline
 ```
 
 ## 版本选择
@@ -349,6 +364,7 @@ codebuddy-statusbar/
 │   └── plugin.json          # 插件元数据
 ├── commands/
 │   ├── setup.md             # /statusline:setup 命令
+│   ├── uninstall.md         # /statusline:uninstall 命令
 │   └── cost-detail.md       # /statusline:cost-detail 命令
 ├── statusline.py            # 完整版 statusline 脚本（增量解析 + 子 Agent 聚合 + 自动更新）
 ├── statusline-lite.py       # 轻量版 statusline 脚本
