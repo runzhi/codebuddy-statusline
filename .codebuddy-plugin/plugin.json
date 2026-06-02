@@ -10,6 +10,5 @@
   "repository": "https://git.woa.com/origuo/codebuddy-statusbar",
   "license": "MIT",
   "keywords": ["statusline", "context", "token", "tools", "cost", "monitor"],
-  "commands": "${CODEBUDDY_PLUGIN_ROOT}/commands",
-  "hooks": "${CODEBUDDY_PLUGIN_ROOT}/hooks/hooks.json"
+  "commands": "${CODEBUDDY_PLUGIN_ROOT}/commands"
 }
