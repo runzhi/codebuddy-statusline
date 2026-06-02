@@ -15,7 +15,7 @@ import time
 _PLUGIN_DATA = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.expanduser("~/.codebuddy/plugins/data/statusline")
 CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 
 # Plugin mode: CODEBUDDY_PLUGIN_ROOT is set when installed via marketplace
 # Git-clone mode: fallback to script's own directory
@@ -101,6 +101,9 @@ def make_progress_bar(pct, width=10):
 
     return bar, color
 
+RECENT_CALLS_MAX = 3
+RECENT_CALLS_SUMMARY_LEN = 60
+
 def new_stats():
     return {
         "total_input": 0,
@@ -113,7 +116,55 @@ def new_stats():
         "running_agents": 0,
         "compact_count": 0,
         "periodic_count": 0,
+        "recent_calls": [],
     }
+
+def _extract_call_summary(data):
+    """Extract a short summary from a function_call entry.
+
+    Uses argumentsDisplayText if available, otherwise parses arguments JSON
+    to pick the most relevant field (command for Bash, file_path for Read/Edit/Write, etc.)
+    """
+    name = data.get('name', '')
+    # Prefer argumentsDisplayText if non-empty
+    adt = data.get('argumentsDisplayText', '')
+    if adt:
+        return adt[:RECENT_CALLS_SUMMARY_LEN]
+
+    # Fall back to parsing arguments JSON
+    args_raw = data.get('arguments', '')
+    if not args_raw:
+        return name
+
+    try:
+        args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+    except (json.JSONDecodeError, TypeError):
+        return name
+
+    # Tool-specific extraction
+    if name == 'Bash':
+        return args.get('command', '')[:RECENT_CALLS_SUMMARY_LEN]
+    elif name in ('Read', 'Edit', 'Write'):
+        fp = args.get('file_path', '')
+        return fp[:RECENT_CALLS_SUMMARY_LEN]
+    elif name == 'Grep':
+        pat = args.get('pattern', '')
+        path = args.get('path', '')
+        return f"{pat} {path}"[:RECENT_CALLS_SUMMARY_LEN]
+    elif name == 'Glob':
+        return args.get('pattern', '')[:RECENT_CALLS_SUMMARY_LEN]
+    elif name == 'Agent':
+        return args.get('description', '')[:RECENT_CALLS_SUMMARY_LEN]
+    elif name == 'WebFetch':
+        return args.get('url', '')[:RECENT_CALLS_SUMMARY_LEN]
+    elif name == 'WebSearch':
+        return args.get('query', '')[:RECENT_CALLS_SUMMARY_LEN]
+    else:
+        # Generic: first string value
+        for v in args.values():
+            if isinstance(v, str) and v:
+                return v[:RECENT_CALLS_SUMMARY_LEN]
+        return name
 
 def add_line_to_stats(stats, data):
     """Parse a single JSONL entry and accumulate into stats."""
@@ -126,6 +177,11 @@ def add_line_to_stats(stats, data):
             stats["tool_counts"][name] = stats["tool_counts"].get(name, 0) + 1
             if name == 'Agent':
                 stats["running_agents"] += 1
+            # Track recent calls
+            summary = _extract_call_summary(data)
+            stats["recent_calls"] = stats.get("recent_calls", [])
+            stats["recent_calls"].append({"name": name, "summary": summary})
+            stats["recent_calls"] = stats["recent_calls"][-RECENT_CALLS_MAX:]
 
     elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
         stats["running_agents"] -= 1
@@ -348,7 +404,12 @@ def parse_transcript_incremental(transcript_path, session_id):
             valid_keys = set(new_stats().keys())
             for key, default in new_stats().items():
                 if key not in stats:
-                    stats[key] = default if not isinstance(default, dict) else dict(default)
+                    if isinstance(default, list):
+                        stats[key] = list(default)
+                    elif isinstance(default, dict):
+                        stats[key] = dict(default)
+                    else:
+                        stats[key] = default
             for obsolete in list(stats.keys()):
                 if obsolete not in valid_keys:
                     del stats[obsolete]
@@ -453,6 +514,9 @@ def parse_transcript_incremental(transcript_path, session_id):
                             stats[key] = {}
                         for k, v in delta[key].items():
                             stats[key][k] = stats[key].get(k, 0) + v
+                    elif isinstance(delta[key], list):
+                        stats[key] = (stats.get(key) or []) + delta[key]
+                        stats[key] = stats[key][-RECENT_CALLS_MAX:]
                 stats["running_agents"] = max(0, delta["running_agents"] + previous_running_agents)
 
             if new_offset > 0:
@@ -512,6 +576,9 @@ def parse_transcript_incremental(transcript_path, session_id):
                                 stats[key] = {}
                             for k, v in sub_delta[key].items():
                                 stats[key][k] = stats[key].get(k, 0) + v
+                        elif isinstance(sub_delta[key], list):
+                            stats[key] = (stats.get(key) or []) + sub_delta[key]
+                            stats[key] = stats[key][-RECENT_CALLS_MAX:]
 
                     sub_offsets[agent_key] = new_sub_offset
 
@@ -569,6 +636,28 @@ def format_tools(tool_counts, running_agents=0):
         else:
             parts.append(_format_tool_entry("✓", GREEN, short, count))
 
+    return " | ".join(parts)
+
+def format_recent_calls(recent_calls):
+    """Format the most recent function calls as line 3.
+
+    Each call shows: ToolName summary_text(truncated)
+    """
+    if not recent_calls:
+        return ""
+
+    parts = []
+    for call in recent_calls:
+        name = call.get('name', '')
+        summary = call.get('summary', '')
+        short = TOOL_SHORT.get(name, name)
+        if summary and summary != name:
+            # Truncate and add ellipsis if needed
+            if len(summary) > RECENT_CALLS_SUMMARY_LEN:
+                summary = summary[:RECENT_CALLS_SUMMARY_LEN - 1] + "…"
+            parts.append(f"{CYAN}{short}{NC} {DIM}{summary}{NC}")
+        else:
+            parts.append(f"{CYAN}{short}{NC}")
     return " | ".join(parts)
 
 def main():
@@ -673,7 +762,12 @@ def main():
     # Line 2: Tools (with Agent running/completed status)
     tool_str = format_tools(stats.get('tool_counts', {}), stats.get('running_agents', 0))
     if tool_str:
-        output += f"\n{tool_str}"
+        output += f"\n{DIM}Tools:{NC} {tool_str}"
+
+    # Line 3: Recent function calls with truncated content
+    recent_str = format_recent_calls(stats.get('recent_calls', []))
+    if recent_str:
+        output += f"\n{DIM}Recent:{NC} {recent_str}"
 
     print(output)
 

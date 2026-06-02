@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from statusline import (
     format_tokens, format_cost, format_duration,
     make_progress_bar, new_stats, add_line_to_stats,
-    format_tools, _format_tool_entry,
+    format_tools, _format_tool_entry, format_recent_calls, _extract_call_summary,
     parse_transcript_incremental as _parse_transcript_incremental,
     load_cache, save_cache,
     cleanup_old_caches, maybe_auto_update,
@@ -132,6 +132,22 @@ class TestAddLineToStats(unittest.TestCase):
         add_line_to_stats(stats, {'type': 'function_call', 'name': 'Read'})
         self.assertEqual(stats["tool_counts"]["Bash"], 2)
         self.assertEqual(stats["tool_counts"]["Read"], 1)
+
+    def test_recent_calls_tracked(self):
+        stats = new_stats()
+        add_line_to_stats(stats, {'type': 'function_call', 'name': 'Bash', 'arguments': '{"command": "ls"}'})
+        add_line_to_stats(stats, {'type': 'function_call', 'name': 'Read', 'arguments': '{"file_path": "/tmp/f.txt"}'})
+        self.assertEqual(len(stats["recent_calls"]), 2)
+        self.assertEqual(stats["recent_calls"][0]["name"], "Bash")
+        self.assertEqual(stats["recent_calls"][1]["name"], "Read")
+
+    def test_recent_calls_max_three(self):
+        stats = new_stats()
+        for i in range(5):
+            add_line_to_stats(stats, {'type': 'function_call', 'name': 'Bash', 'arguments': f'{{"command": "cmd{i}"}}'})
+        self.assertEqual(len(stats["recent_calls"]), 3)
+        self.assertEqual(stats["recent_calls"][0]["summary"], "cmd2")
+        self.assertEqual(stats["recent_calls"][2]["summary"], "cmd4")
 
     def test_agent_running(self):
         stats = new_stats()
@@ -325,6 +341,86 @@ class TestFormatToolEntry(unittest.TestCase):
         result = _format_tool_entry("↑", "\033[1;33m", "Agent")
         self.assertIn("Agent", result)
         self.assertNotIn("×", result)
+
+
+class TestExtractCallSummary(unittest.TestCase):
+    def test_bash_from_arguments(self):
+        data = {"name": "Bash", "arguments": '{"command": "ls -la /tmp", "description": "List files"}'}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "ls -la /tmp")
+
+    def test_read_from_arguments(self):
+        data = {"name": "Read", "arguments": '{"file_path": "/data/workspace/project/main.py"}'}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "/data/workspace/project/main.py")
+
+    def test_edit_from_arguments(self):
+        data = {"name": "Edit", "arguments": '{"file_path": "/data/app/config.yaml", "old_string": "x", "new_string": "y"}'}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "/data/app/config.yaml")
+
+    def test_grep_from_arguments(self):
+        data = {"name": "Grep", "arguments": '{"pattern": "TODO", "path": "/src"}'}
+        result = _extract_call_summary(data)
+        self.assertIn("TODO", result)
+        self.assertIn("/src", result)
+
+    def test_glob_from_arguments(self):
+        data = {"name": "Glob", "arguments": '{"pattern": "**/*.py"}'}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "**/*.py")
+
+    def test_arguments_display_text_preferred(self):
+        data = {"name": "Bash", "argumentsDisplayText": "apt-get install tmux", "arguments": '{"command": "apt-get install tmux"}'}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "apt-get install tmux")
+
+    def test_no_arguments(self):
+        data = {"name": "Unknown"}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "Unknown")
+
+    def test_truncation(self):
+        data = {"name": "Bash", "arguments": '{"command": "' + 'x' * 100 + '"}'}
+        result = _extract_call_summary(data)
+        self.assertLessEqual(len(result), 60)
+
+    def test_agent_from_arguments(self):
+        data = {"name": "Agent", "arguments": '{"description": "Explore codebase for patterns"}'}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "Explore codebase for patterns")
+
+
+class TestFormatRecentCalls(unittest.TestCase):
+    def test_empty(self):
+        self.assertEqual(format_recent_calls([]), "")
+
+    def test_single_call(self):
+        calls = [{"name": "Bash", "summary": "ls -la"}]
+        result = format_recent_calls(calls)
+        self.assertIn("Bash", result)
+        self.assertIn("ls -la", result)
+
+    def test_multiple_calls_pipe_separated(self):
+        calls = [
+            {"name": "Bash", "summary": "ls -la"},
+            {"name": "Read", "summary": "/data/app/main.py"},
+        ]
+        result = format_recent_calls(calls)
+        self.assertIn("|", result)
+        self.assertIn("Bash", result)
+        self.assertIn("Read", result)
+
+    def test_short_name_used(self):
+        calls = [{"name": "WebSearch", "summary": "python async"}]
+        result = format_recent_calls(calls)
+        self.assertIn("Search", result)
+
+    def test_no_summary(self):
+        calls = [{"name": "Bash", "summary": "Bash"}]
+        result = format_recent_calls(calls)
+        self.assertIn("Bash", result)
+        # Should not duplicate name when summary equals name
 
 
 class TestIncrementalParsing(unittest.TestCase):
