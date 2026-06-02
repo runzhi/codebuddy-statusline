@@ -4,7 +4,25 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
-## [1.5.2] - 2026-06-02
+## [1.6.0] - 2026-06-02
+
+### 新增 (Added)
+
+- **Windows PowerShell 安装/卸载脚本**：新增 `install.ps1` 和 `uninstall.ps1`，Windows 用户可直接用 PowerShell 安装，无需 Git Bash。
+- **`statusline.py` Windows GBK 编码修复**：在脚本入口处将 stdout 重新配置为 UTF-8 编码，解决中文 Windows 下 Unicode 字符（✓、█、▕、× 等）输出报错 `UnicodeEncodeError: 'gbk' codec can't encode character` 的问题。
+
+### 修复 (Fixed)
+
+- **`install.sh` 在 Windows Git Bash 下无法正常运行**：
+  - Python 检测逻辑改为实际执行验证（`_resolve_python()`），跳过 Windows Store 的 `python3` stub（exit code 49）。
+  - 使用 `cygpath -w` 将 MSYS 路径转为 Windows 原生路径，解决 Python `open()` 和 settings.json 中的路径兼容问题。
+  - Windows 下跳过无意义的 `chmod +x`。
+  - statusLine command 匹配放宽为 `'statusline' in cmd`，兼容 Windows 路径格式。
+- **`uninstall.sh` 同步修复**：Python 检测、路径转换、command 匹配逻辑与 install.sh 对齐。
+
+### 移除 (Removed)
+
+- **移除 `statusline-lite.py`**：精简项目，不再维护轻量版。
 
 ### 新增 (Added)
 

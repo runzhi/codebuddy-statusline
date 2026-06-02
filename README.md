@@ -112,6 +112,13 @@ git clone https://git.woa.com/origuo/codebuddy-statusbar.git ~/.codebuddy/status
 bash ~/.codebuddy/statusline/install.sh
 ```
 
+**Windows PowerShell 用户：**
+
+```powershell
+git clone https://git.woa.com/origuo/codebuddy-statusbar.git "$env:USERPROFILE\.codebuddy\statusline"
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
+```
+
 安装脚本会自动：
 1. 克隆/更新插件文件
 2. 创建缓存目录
@@ -159,7 +166,13 @@ Git-clone 安装模式下，完整版 `statusline.py` 内置了**每天最多一
 **Git Clone 安装模式：**
 
 ```bash
+# macOS / Linux / Git Bash
 bash ~/.codebuddy/statusline/uninstall.sh
+```
+
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\uninstall.ps1"
 ```
 
 **Marketplace 插件安装模式：**
@@ -191,16 +204,6 @@ Git-clone 安装用户使用：
 ```json
 "statusLine": {
     "command": "python3 ~/.codebuddy/statusline/statusline.py"
-}
-```
-
-### 轻量版
-
-单行显示，只使用 statusline 自带的 `cost` 和 `context_window` 字段，不解析 transcript 文件，更快但信息较少（仅显示 Cost、Time、代码变更）。
-
-```json
-"statusLine": {
-    "command": "python3 ${CODEBUDDY_PLUGIN_ROOT}/statusline-lite.py"
 }
 ```
 
@@ -367,11 +370,12 @@ codebuddy-statusbar/
 │   ├── uninstall.md         # /statusline:uninstall 命令
 │   └── cost-detail.md       # /statusline:cost-detail 命令
 ├── statusline.py            # 完整版 statusline 脚本（增量解析 + 子 Agent 聚合 + 自动更新）
-├── statusline-lite.py       # 轻量版 statusline 脚本
 ├── cost-detail.py           # 详细报告脚本（含子 Agent token 聚合）
 ├── test_statusline.py       # 单元测试（104 用例）
-├── install.sh               # Git-clone 模式安装脚本
-├── uninstall.sh             # 卸载脚本
+├── install.sh               # Git-clone 模式安装脚本（macOS/Linux/Git Bash）
+├── install.ps1              # Git-clone 模式安装脚本（Windows PowerShell）
+├── uninstall.sh             # 卸载脚本（macOS/Linux/Git Bash）
+├── uninstall.ps1            # 卸载脚本（Windows PowerShell）
 ├── CHANGELOG.md             # 版本变更记录
 └── README.md
 ```

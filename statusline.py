@@ -12,6 +12,14 @@ import sys
 import os
 import time
 
+# Fix Windows GBK encoding: stdout defaults to GBK on Chinese Windows,
+# which cannot encode Unicode chars like ✓, █, ▕, × used in the output.
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 _PLUGIN_DATA = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.expanduser("~/.codebuddy/plugins/data/statusline")
 CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
