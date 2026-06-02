@@ -4,6 +4,17 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.5.2] - 2026-06-02
+
+### 新增 (Added)
+
+- **Recent 行新增 Credits 和 Cost**：最近一次交互详情现在也显示 `Credits:1.50` 和 `Cost:$0.003`（仅在非零时显示）。
+- **`last_credits` / `last_cost` 统计字段**：追踪最近一次 API 请求的 Credits 和 Cost。
+
+### 修复 (Fixed)
+
+- **用户发消息瞬间 Recent 行 In/Out 消失**：增量解析时若无新 API 响应（delta 的 `last_*` 为 0），会错误覆写缓存中上次 API 响应的正确值。修复为仅在 delta 有非零值时才覆写 `last_*` 字段。
+
 ## [1.5.1] - 2026-06-02
 
 ### 修复 (Fixed)
