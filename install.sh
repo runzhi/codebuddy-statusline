@@ -139,7 +139,7 @@ fi
 echo ""
 echo -e "${GREEN}=== Installation complete! ===${NC}"
 echo ""
-echo "Restart your CodeBuddy Code session to see the statusline."
+echo "Statusline is now active — takes effect immediately."
 echo ""
 echo -e "${CYAN}What you'll see:${NC}"
 echo "  GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K | In:2.4M Out:10.7K | Req:29 | Cost:\$0.023 | Credits:67.20 | Time:45s | +156/-23"

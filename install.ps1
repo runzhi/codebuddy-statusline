@@ -110,7 +110,7 @@ with open(path, 'w') as f:
 Write-Host ""
 Write-Host "=== Installation complete! ===" -ForegroundColor Green
 Write-Host ""
-Write-Host "Restart your CodeBuddy Code session to see the statusline."
+Write-Host "Statusline is now active - takes effect immediately."
 Write-Host ""
 Write-Host "Uninstall:" -ForegroundColor Cyan
 Write-Host "  powershell -ExecutionPolicy Bypass -File `"$PluginDir\uninstall.ps1`""
