@@ -4,6 +4,13 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.5.1] - 2026-06-02
+
+### 修复 (Fixed)
+
+- **`last_input/last_output/last_cache_read` 增量合并时被累加而非覆写**：`last_*` 字段应只记录最近一次 API 请求的值，但增量合并的 `int/float` 分支对它们做了 `+=` 累加，导致 Recent 行显示的 In/Out/Cache 远大于实际值。修复为主 transcript 和子 Agent 合并时均使用直接赋值。
+- **CACHE_VERSION 升级到 7**：旧缓存中 `last_*` 为累加错误值，升级版本号强制缓存失效重建。
+
 ## [1.5.0] - 2026-06-02
 
 ### 新增 (Added)

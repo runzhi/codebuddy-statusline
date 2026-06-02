@@ -15,7 +15,7 @@ import time
 _PLUGIN_DATA = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.expanduser("~/.codebuddy/plugins/data/statusline")
 CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
-CACHE_VERSION = 6
+CACHE_VERSION = 7
 
 # Plugin mode: CODEBUDDY_PLUGIN_ROOT is set when installed via marketplace
 # Git-clone mode: fallback to script's own directory
