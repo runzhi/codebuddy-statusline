@@ -117,6 +117,9 @@ def new_stats():
         "compact_count": 0,
         "periodic_count": 0,
         "recent_calls": [],
+        "last_input": 0,
+        "last_output": 0,
+        "last_cache_read": 0,
     }
 
 def _extract_call_summary(name, args):
@@ -230,6 +233,10 @@ def add_line_to_stats(stats, data):
         stats["total_reasoning"] += reasoning
         stats["total_credits"] += credit
         stats["request_count"] += 1
+        # 记录最近一次交互
+        stats["last_input"] = input_tokens
+        stats["last_output"] = output_tokens
+        stats["last_cache_read"] = cache_read
 
 def load_cache(session_id):
     """Load the cache for a session.
@@ -765,10 +772,30 @@ def main():
     if tool_str:
         output += f"\n{DIM}Tools:{NC} {tool_str}"
 
-    # Line 3: Recent function calls with truncated content
+    # Line 3: Last interaction token details + Recent function calls
+    recent_parts = []
+
+    # 最近一次交互的 In/Out/Cache 详情
+    last_in = stats.get('last_input', 0) or 0
+    last_out = stats.get('last_output', 0) or 0
+    last_cache = stats.get('last_cache_read', 0) or 0
+    if last_in > 0 or last_out > 0:
+        last_parts = [
+            f"{GREEN}In:{NC}{format_tokens(last_in)}",
+            f"{GREEN}Out:{NC}{format_tokens(last_out)}",
+        ]
+        if last_cache > 0:
+            cache_pct = int(last_cache / last_in * 100) if last_in > 0 else 0
+            last_parts.append(f"{DIM}Cache:{NC}{format_tokens(last_cache)}({cache_pct}%)")
+        recent_parts.append(" ".join(last_parts))
+
+    # Recent function calls with truncated content
     recent_str = format_recent_calls(stats.get('recent_calls', []))
     if recent_str:
-        output += f"\n{DIM}Recent:{NC} {recent_str}"
+        recent_parts.append(recent_str)
+
+    if recent_parts:
+        output += f"\n{DIM}Recent:{NC} {' | '.join(recent_parts)}"
 
     print(output)
 

@@ -9,7 +9,7 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实
 ```
 GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K Auto-Compact×2 Periodic×3 | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.023 | Credits:67.20 | Time:45s | +156/-23
 Tools: ✓ Bash×15 | ✓ Read×2 | ✓ Edit×2 | ✓ Agent | ↑ Agent×2
-Recent: Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
+Recent: In:3.2K Out:856 Cache:2.1K(65%) | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
 ```
 
 ### 第一行：概览
@@ -69,13 +69,25 @@ Agent 在工具行中内联显示，区分运行中和已完成：
 
 运行中的 Agent 完成后会自动合并到 ✓ 计数中。
 
-### 第三行：最近 Function Call
+### 第三行：最近交互详情 & Function Call
 
-标题 `Recent:` 使用暗淡样式显示。展示最近 3 次工具调用的名称及参数摘要，用 `|` 分隔：
+标题 `Recent:` 使用暗淡样式显示。左侧展示最近一次 API 交互的 Token 明细和 Cache 命中率，右侧展示最近 3 次工具调用的名称及参数摘要，用 `|` 分隔：
 
 ```
-Recent: Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
+Recent: In:3.2K Out:856 Cache:2.1K(65%) | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
 ```
+
+**最近一次交互详情：**
+
+| 字段 | 说明 |
+|------|------|
+| `In:3.2K` | 最近一次请求的输入 Token 数 |
+| `Out:856` | 最近一次请求的输出 Token 数 |
+| `Cache:2.1K(65%)` | 最近一次请求的缓存命中 Token 数及命中率（命中数占输入数的百分比） |
+
+仅在有 API 请求记录时显示，Cache 命中率仅在 Cache > 0 时显示。
+
+**最近 Function Call：**
 
 | 工具 | 提取字段 |
 |------|----------|
@@ -139,7 +151,7 @@ bash ~/.codebuddy/statusline/uninstall.sh
 
 ### 完整版（默认）
 
-双行显示：第一行为 Context 进度条、Token 用量、费用等；第二行为工具调用统计；第三行为最近 3 次 function call 摘要。通过增量解析会话 transcript 文件获取 Token 和工具数据，Context 进度直接读取 CodeBuddy 提供的 `context_window` 字段。
+双行显示：第一行为 Context 进度条、Token 用量、费用等；第二行为工具调用统计；第三行为最近一次交互的 In/Out/Cache 命中率及最近 3 次 function call 摘要。通过增量解析会话 transcript 文件获取 Token 和工具数据，Context 进度直接读取 CodeBuddy 提供的 `context_window` 字段。
 
 ```json
 "statusLine": {

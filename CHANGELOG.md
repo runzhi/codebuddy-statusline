@@ -4,6 +4,13 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.5.0] - 2026-06-02
+
+### 新增 (Added)
+
+- **第三行显示最近一次交互的 In/Out/Cache 命中率**：在 `Recent:` 行左侧展示最近一次 API 请求的输入、输出 Token 数及 Cache 命中数和命中率（如 `In:3.2K Out:856 Cache:2.1K(65%)`），与 Recent function call 摘要用 `|` 分隔。
+- **`last_input` / `last_output` / `last_cache_read` 统计字段**：在 `add_line_to_stats()` 中追踪最近一次 API 请求的 token 明细，缓存兼容已有 backfill 逻辑自动补全。
+
 ## [1.4.0] - 2026-06-02
 
 ### 新增 (Added)
