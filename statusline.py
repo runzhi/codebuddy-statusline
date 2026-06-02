@@ -569,7 +569,7 @@ def format_tools(tool_counts, running_agents=0):
         else:
             parts.append(_format_tool_entry("✓", GREEN, short, count))
 
-    return " ".join(parts)
+    return " | ".join(parts)
 
 def main():
     try:
