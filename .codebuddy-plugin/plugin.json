@@ -1,6 +1,6 @@
 {
   "name": "statusline",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "CodeBuddy Code 实时状态栏，显示上下文进度、Token用量、工具统计、费用等",
   "description_en": "Real-time statusline for CodeBuddy Code showing context progress, tokens, tools, cost and more",
   "author": {

@@ -4,11 +4,12 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实
 
 ## 效果预览
 
-状态栏分两行实时显示：
+状态栏分三行实时显示：
 
 ```
 GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K Auto-Compact×2 Periodic×3 | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.023 | Credits:67.20 | Time:45s | +156/-23
-✓ Bash×15 ✓ Read×2 ✓ Edit×2 ✓ Agent ↑ Agent ✓ Agent×2
+Tools: ✓ Bash×15 | ✓ Read×2 | ✓ Edit×2 | ✓ Agent | ↑ Agent×2
+Recent: Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
 ```
 
 ### 第一行：概览
@@ -44,6 +45,8 @@ GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K Auto-Compact×2 Periodic×3
 
 ### 第二行：工具调用 & Agent 状态
 
+标题 `Tools:` 使用暗淡样式显示。工具之间用 `|` 分隔。
+
 **工具调用：**
 
 | 格式 | 说明 |
@@ -65,6 +68,26 @@ Agent 在工具行中内联显示，区分运行中和已完成：
 | `↑ Agent ✓ Agent×2` | 1 个运行中 + 2 个已完成 |
 
 运行中的 Agent 完成后会自动合并到 ✓ 计数中。
+
+### 第三行：最近 Function Call
+
+标题 `Recent:` 使用暗淡样式显示。展示最近 3 次工具调用的名称及参数摘要，用 `|` 分隔：
+
+```
+Recent: Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
+```
+
+| 工具 | 提取字段 |
+|------|----------|
+| Bash | `command` |
+| Read / Edit / Write | `file_path` |
+| Grep | `pattern` + `path` |
+| Glob | `pattern` |
+| Agent | `description` |
+| WebFetch | `url` |
+| WebSearch | `query` |
+
+优先使用 `argumentsDisplayText`，否则从 `arguments` JSON 提取对应字段。摘要超过 60 字符自动截断并添加 `…`。
 
 ## 安装
 
@@ -116,7 +139,7 @@ bash ~/.codebuddy/statusline/uninstall.sh
 
 ### 完整版（默认）
 
-双行显示：第一行为 Context 进度条、Token 用量、费用等；第二行为工具调用统计。通过增量解析会话 transcript 文件获取 Token 和工具数据，Context 进度直接读取 CodeBuddy 提供的 `context_window` 字段。
+双行显示：第一行为 Context 进度条、Token 用量、费用等；第二行为工具调用统计；第三行为最近 3 次 function call 摘要。通过增量解析会话 transcript 文件获取 Token 和工具数据，Context 进度直接读取 CodeBuddy 提供的 `context_window` 字段。
 
 ```json
 "statusLine": {
@@ -309,7 +332,7 @@ codebuddy-statusbar/
 ├── statusline.py            # 完整版 statusline 脚本（增量解析 + 子 Agent 聚合 + 自动更新）
 ├── statusline-lite.py       # 轻量版 statusline 脚本
 ├── cost-detail.py           # 详细报告脚本（含子 Agent token 聚合）
-├── test_statusline.py       # 单元测试（88 用例）
+├── test_statusline.py       # 单元测试（104 用例）
 ├── install.sh               # Git-clone 模式安装脚本
 ├── uninstall.sh             # 卸载脚本
 ├── CHANGELOG.md             # 版本变更记录

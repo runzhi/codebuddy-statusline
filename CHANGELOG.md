@@ -4,6 +4,20 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.4.0] - 2026-06-02
+
+### 新增 (Added)
+
+- **第三行显示最近 3 次 function call**：展示工具名及截断后的参数摘要（如 `Bash apt-get install -y tmux | Read /data/app/main.py`），用 `|` 分隔。
+- **`_extract_call_summary()`**：从 function_call 条目提取摘要，优先使用 `argumentsDisplayText`，否则按工具类型从 `arguments` JSON 提取关键字段（Bash→command, Read/Edit/Write→file_path, Grep→pattern+path, Glob→pattern, Agent→description 等）。
+- **第二行/第三行标题**：`Tools:` 和 `Recent:` 标题，使用 DIM 样式弱化显示。
+- **工具调用间用 `|` 分隔**：第二行工具统计从空格分隔改为 `|` 分隔，与第一行风格统一。
+- **新增 16 个单元测试**：覆盖 `_extract_call_summary`（9个）、`format_recent_calls`（4个）、`recent_calls` 追踪（3个）。
+
+### 变更 (Changed)
+
+- **CACHE_VERSION 升级到 6**：新增 `recent_calls` 字段，旧缓存自动失效重建。
+
 ## [1.3.1] - 2026-06-01
 
 ### 变更 (Changed)
