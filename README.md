@@ -124,7 +124,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 2. 创建缓存目录
 3. 在 `~/.codebuddy/settings.json` 中配置 `statusLine`（已有则跳过）
 
-安装后重启 CodeBuddy Code 会话即可生效。
+安装后即时生效，无需重启 CodeBuddy Code 会话。
 
 ### 方式二：Marketplace 插件安装
 
