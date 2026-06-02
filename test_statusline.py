@@ -345,60 +345,49 @@ class TestFormatToolEntry(unittest.TestCase):
 
 class TestExtractCallSummary(unittest.TestCase):
     def test_bash_from_arguments(self):
-        data = {"name": "Bash", "arguments": '{"command": "ls -la /tmp", "description": "List files"}'}
-        result = _extract_call_summary(data)
+        result = _extract_call_summary("Bash", {"command": "ls -la /tmp", "description": "List files"})
         self.assertEqual(result, "ls -la /tmp")
 
     def test_read_from_arguments(self):
-        data = {"name": "Read", "arguments": '{"file_path": "/data/workspace/project/main.py"}'}
-        result = _extract_call_summary(data)
+        result = _extract_call_summary("Read", {"file_path": "/data/workspace/project/main.py"})
         self.assertEqual(result, "/data/workspace/project/main.py")
 
     def test_edit_from_arguments(self):
-        data = {"name": "Edit", "arguments": '{"file_path": "/data/app/config.yaml", "old_string": "x", "new_string": "y"}'}
-        result = _extract_call_summary(data)
+        result = _extract_call_summary("Edit", {"file_path": "/data/app/config.yaml", "old_string": "x", "new_string": "y"})
         self.assertEqual(result, "/data/app/config.yaml")
 
     def test_grep_from_arguments(self):
-        data = {"name": "Grep", "arguments": '{"pattern": "TODO", "path": "/src"}'}
-        result = _extract_call_summary(data)
+        result = _extract_call_summary("Grep", {"pattern": "TODO", "path": "/src"})
         self.assertIn("TODO", result)
         self.assertIn("/src", result)
 
     def test_glob_from_arguments(self):
-        data = {"name": "Glob", "arguments": '{"pattern": "**/*.py"}'}
-        result = _extract_call_summary(data)
+        result = _extract_call_summary("Glob", {"pattern": "**/*.py"})
         self.assertEqual(result, "**/*.py")
 
-    def test_arguments_display_text_preferred(self):
-        data = {"name": "Bash", "argumentsDisplayText": "apt-get install tmux", "arguments": '{"command": "apt-get install tmux"}'}
-        result = _extract_call_summary(data)
-        self.assertEqual(result, "apt-get install tmux")
-
-    def test_no_arguments(self):
-        data = {"name": "Unknown"}
-        result = _extract_call_summary(data)
+    def test_no_args_returns_name(self):
+        result = _extract_call_summary("Unknown", {})
         self.assertEqual(result, "Unknown")
 
-    def test_truncation_not_here(self):
-        """_extract_call_summary no longer truncates; format_recent_calls does."""
-        data = {"name": "Bash", "arguments": '{"command": "' + 'x' * 100 + '"}'}
-        result = _extract_call_summary(data)
+    def test_non_dict_args_returns_name(self):
+        result = _extract_call_summary("Bash", "not a dict")
+        self.assertEqual(result, "Bash")
+
+    def test_no_truncation(self):
+        """_extract_call_summary does not truncate; format_recent_calls does."""
+        result = _extract_call_summary("Bash", {"command": "x" * 100})
         self.assertEqual(len(result), 100)
 
     def test_grep_empty_fields(self):
-        data = {"name": "Grep", "arguments": '{"pattern": "", "path": ""}'}
-        result = _extract_call_summary(data)
+        result = _extract_call_summary("Grep", {"pattern": "", "path": ""})
         self.assertEqual(result, "Grep")
 
     def test_empty_command_fallback(self):
-        data = {"name": "Bash", "arguments": '{"command": ""}'}
-        result = _extract_call_summary(data)
+        result = _extract_call_summary("Bash", {"command": ""})
         self.assertEqual(result, "Bash")
 
     def test_agent_from_arguments(self):
-        data = {"name": "Agent", "arguments": '{"description": "Explore codebase for patterns"}'}
-        result = _extract_call_summary(data)
+        result = _extract_call_summary("Agent", {"description": "Explore codebase for patterns"})
         self.assertEqual(result, "Explore codebase for patterns")
 
 

@@ -119,27 +119,13 @@ def new_stats():
         "recent_calls": [],
     }
 
-def _extract_call_summary(data):
-    """Extract a short summary from a function_call entry.
+def _extract_call_summary(name, args):
+    """Extract a short summary from a function_call's parsed arguments.
 
-    Uses argumentsDisplayText if available, otherwise parses arguments JSON
-    to pick the most relevant field (command for Bash, file_path for Read/Edit/Write, etc.)
+    args should be a dict (already parsed from JSON).
     Truncation is handled by format_recent_calls, not here.
     """
-    name = data.get('name', '')
-    # Prefer argumentsDisplayText if non-empty
-    adt = data.get('argumentsDisplayText', '')
-    if adt:
-        return adt
-
-    # Fall back to parsing arguments JSON
-    args_raw = data.get('arguments', '')
-    if not args_raw:
-        return name
-
-    try:
-        args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-    except (json.JSONDecodeError, TypeError):
+    if not isinstance(args, dict) or not args:
         return name
 
     # Tool-specific extraction
@@ -180,7 +166,16 @@ def add_line_to_stats(stats, data):
             if name == 'Agent':
                 stats["running_agents"] += 1
             # Track recent calls
-            summary = _extract_call_summary(data)
+            adt = data.get('argumentsDisplayText', '')
+            if adt:
+                summary = adt
+            else:
+                args_raw = data.get('arguments', '')
+                try:
+                    args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw if isinstance(args_raw, dict) else {})
+                except (json.JSONDecodeError, TypeError):
+                    args = {}
+                summary = _extract_call_summary(name, args)
             stats["recent_calls"] = stats.get("recent_calls", [])
             stats["recent_calls"].append({"name": name, "summary": summary})
             stats["recent_calls"] = stats["recent_calls"][-RECENT_CALLS_MAX:]
