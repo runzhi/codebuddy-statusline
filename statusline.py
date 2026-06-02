@@ -124,12 +124,13 @@ def _extract_call_summary(data):
 
     Uses argumentsDisplayText if available, otherwise parses arguments JSON
     to pick the most relevant field (command for Bash, file_path for Read/Edit/Write, etc.)
+    Truncation is handled by format_recent_calls, not here.
     """
     name = data.get('name', '')
     # Prefer argumentsDisplayText if non-empty
     adt = data.get('argumentsDisplayText', '')
     if adt:
-        return adt[:RECENT_CALLS_SUMMARY_LEN]
+        return adt
 
     # Fall back to parsing arguments JSON
     args_raw = data.get('arguments', '')
@@ -143,27 +144,28 @@ def _extract_call_summary(data):
 
     # Tool-specific extraction
     if name == 'Bash':
-        return args.get('command', '')[:RECENT_CALLS_SUMMARY_LEN]
+        return args.get('command', '') or name
     elif name in ('Read', 'Edit', 'Write'):
-        fp = args.get('file_path', '')
-        return fp[:RECENT_CALLS_SUMMARY_LEN]
+        return args.get('file_path', '') or name
     elif name == 'Grep':
         pat = args.get('pattern', '')
         path = args.get('path', '')
-        return f"{pat} {path}"[:RECENT_CALLS_SUMMARY_LEN]
+        if pat or path:
+            return f"{pat} {path}".strip()
+        return name
     elif name == 'Glob':
-        return args.get('pattern', '')[:RECENT_CALLS_SUMMARY_LEN]
+        return args.get('pattern', '') or name
     elif name == 'Agent':
-        return args.get('description', '')[:RECENT_CALLS_SUMMARY_LEN]
+        return args.get('description', '') or name
     elif name == 'WebFetch':
-        return args.get('url', '')[:RECENT_CALLS_SUMMARY_LEN]
+        return args.get('url', '') or name
     elif name == 'WebSearch':
-        return args.get('query', '')[:RECENT_CALLS_SUMMARY_LEN]
+        return args.get('query', '') or name
     else:
         # Generic: first string value
         for v in args.values():
             if isinstance(v, str) and v:
-                return v[:RECENT_CALLS_SUMMARY_LEN]
+                return v
         return name
 
 def add_line_to_stats(stats, data):
@@ -577,6 +579,10 @@ def parse_transcript_incremental(transcript_path, session_id):
                             for k, v in sub_delta[key].items():
                                 stats[key][k] = stats[key].get(k, 0) + v
                         elif isinstance(sub_delta[key], list):
+                            # NOTE: sub-agent calls are appended after main calls,
+                            # so the "most recent 3" may not reflect true chronological
+                            # order across main + sub transcripts. This is acceptable
+                            # since transcripts lack interleaved timestamps.
                             stats[key] = (stats.get(key) or []) + sub_delta[key]
                             stats[key] = stats[key][-RECENT_CALLS_MAX:]
 

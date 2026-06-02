@@ -380,10 +380,21 @@ class TestExtractCallSummary(unittest.TestCase):
         result = _extract_call_summary(data)
         self.assertEqual(result, "Unknown")
 
-    def test_truncation(self):
+    def test_truncation_not_here(self):
+        """_extract_call_summary no longer truncates; format_recent_calls does."""
         data = {"name": "Bash", "arguments": '{"command": "' + 'x' * 100 + '"}'}
         result = _extract_call_summary(data)
-        self.assertLessEqual(len(result), 60)
+        self.assertEqual(len(result), 100)
+
+    def test_grep_empty_fields(self):
+        data = {"name": "Grep", "arguments": '{"pattern": "", "path": ""}'}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "Grep")
+
+    def test_empty_command_fallback(self):
+        data = {"name": "Bash", "arguments": '{"command": ""}'}
+        result = _extract_call_summary(data)
+        self.assertEqual(result, "Bash")
 
     def test_agent_from_arguments(self):
         data = {"name": "Agent", "arguments": '{"description": "Explore codebase for patterns"}'}
@@ -421,6 +432,15 @@ class TestFormatRecentCalls(unittest.TestCase):
         result = format_recent_calls(calls)
         self.assertIn("Bash", result)
         # Should not duplicate name when summary equals name
+
+    def test_truncation_with_ellipsis(self):
+        calls = [{"name": "Bash", "summary": "x" * 100}]
+        result = format_recent_calls(calls)
+        # Strip ANSI
+        import re
+        plain = re.sub(r'\033\[[0-9;]*m', '', result)
+        self.assertIn("…", plain)
+        self.assertLessEqual(len(plain), 70)  # name + space + 59 + ellipsis
 
 
 class TestIncrementalParsing(unittest.TestCase):
