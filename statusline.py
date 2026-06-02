@@ -677,7 +677,7 @@ def format_recent_calls(recent_calls):
         return ""
 
     parts = []
-    for call in recent_calls:
+    for call in reversed(recent_calls):
         name = call.get('name', '')
         summary = call.get('summary', '')
         short = TOOL_SHORT.get(name, name)
