@@ -120,6 +120,8 @@ def new_stats():
         "last_input": 0,
         "last_output": 0,
         "last_cache_read": 0,
+        "last_credits": 0.0,
+        "last_cost": 0.0,
     }
 
 def _extract_call_summary(name, args):
@@ -237,6 +239,13 @@ def add_line_to_stats(stats, data):
         stats["last_input"] = input_tokens
         stats["last_output"] = output_tokens
         stats["last_cache_read"] = cache_read
+        stats["last_credits"] = credit
+        # 计算 cost: 优先用 rawUsage 里的，否则从 usage 估算
+        if raw_usage:
+            stats["last_cost"] = raw_usage.get('cost', 0) or 0
+        else:
+            # 无 rawUsage 时无法精确计算单次 cost，置 0
+            stats["last_cost"] = 0
 
 def load_cache(session_id):
     """Load the cache for a session.
@@ -785,10 +794,12 @@ def main():
     # Line 3: Last interaction token details + Recent function calls
     recent_parts = []
 
-    # 最近一次交互的 In/Out/Cache 详情
+    # 最近一次交互的 In/Out/Cache/Credits/Cost 详情
     last_in = stats.get('last_input', 0) or 0
     last_out = stats.get('last_output', 0) or 0
     last_cache = stats.get('last_cache_read', 0) or 0
+    last_credits = stats.get('last_credits', 0) or 0
+    last_cost = stats.get('last_cost', 0) or 0
     if last_in > 0 or last_out > 0:
         last_parts = [
             f"{GREEN}In:{NC}{format_tokens(last_in)}",
@@ -797,6 +808,10 @@ def main():
         if last_cache > 0:
             cache_pct = int(last_cache / last_in * 100) if last_in > 0 else 0
             last_parts.append(f"{DIM}Cache:{NC}{format_tokens(last_cache)}({cache_pct}%)")
+        if last_credits > 0:
+            last_parts.append(f"{YELLOW}Credits:{NC}{last_credits:.2f}")
+        if last_cost > 0:
+            last_parts.append(f"{RED}Cost:{NC}{format_cost(last_cost)}")
         recent_parts.append(" ".join(last_parts))
 
     # Recent function calls with truncated content
