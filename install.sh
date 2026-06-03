@@ -10,7 +10,7 @@ NC='\033[0m'
 
 PLUGIN_DIR="$HOME/.codebuddy/statusline"
 SETTINGS_FILE="$HOME/.codebuddy/settings.json"
-REPO_URL="${1:-https://git.woa.com/origuo/codebuddy-statusbar.git}"
+REPO_URL="${1:-https://git.woa.com/four-harness/codebuddy-statusline.git}"
 
 # Resolve python command — must verify it actually runs
 # (Windows Store 'python3' stub exists but exits with code 49 without running)
