@@ -630,7 +630,7 @@ def parse_transcript_incremental(transcript_path, session_id):
         save_cache(session_id, stats, main_offset, sub_offsets)
 
     # Cleanup old caches ~1% of the time to avoid O(n) scan every 300ms.
-    if time.time_ns() % 97 < 1:
+    if int(time.time() * 1000) % 97 < 1:
         cleanup_old_caches(session_id)
 
     return stats, any_truncated
