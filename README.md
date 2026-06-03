@@ -55,9 +55,9 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 状态栏分三行实时显示：
 
 ```
-GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K Auto-Compact×2 Periodic×3 | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.023 | Credits:67.20 | Time:45s | +156/-23
+GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K Auto-Compact×2 Periodic×3 | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.69(¥4.83) | Credits:67.20 | Time:45s | +156/-23
 Tools: ✓ Bash×15 | ✓ Read×2 | ✓ Edit×2 | ✓ Agent | ↑ Agent×2
-Recent: In:3.2K Out:856 Cache:2.1K(65%) Credits:1.50 Cost:$0.003 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
+Recent: In:3.2K Out:856 Cache:2.1K(65%) Cost:$0.02(¥0.11) Credits:1.50 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
 ```
 
 ### 第一行：概览
@@ -74,7 +74,7 @@ Recent: In:3.2K Out:856 Cache:2.1K(65%) Credits:1.50 Cost:$0.003 | Bash apt-get 
 | `Cache:2.2M` | 缓存命中 Token 数 |
 | `Think:952` | 推理/思考 Token 数 |
 | `Req:29` | API 请求次数 |
-| `Cost:$0.023` | 费用（按金额变色：绿 < $0.01，黄 < $0.1，红 >= $0.1） |
+| `Cost:$0.69(¥4.83)` | 费用，美元(人民币)。总费用 = 平台 cost + credits/100，人民币 = 美元×7。按金额变色：绿 < $0.01，黄 < $0.1，红 >= $0.1 |
 | `Credits:67.20` | 消耗 Credits |
 | `Time:45s` | 会话耗时 |
 | `+156/-23` | 代码增删行数 |
@@ -122,7 +122,7 @@ Agent 在工具行中内联显示，区分运行中和已完成：
 标题 `Recent:` 使用暗淡样式显示。左侧展示最近一次 API 交互的 Token 明细和 Cache 命中率，右侧展示最近 3 次工具调用的名称及参数摘要，用 `|` 分隔：
 
 ```
-Recent: In:3.2K Out:856 Cache:2.1K(65%) Credits:1.50 Cost:$0.003 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
+Recent: In:3.2K Out:856 Cache:2.1K(65%) Cost:$0.02(¥0.11) Credits:1.50 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
 ```
 
 **最近一次交互详情：**
@@ -132,6 +132,7 @@ Recent: In:3.2K Out:856 Cache:2.1K(65%) Credits:1.50 Cost:$0.003 | Bash apt-get 
 | `In:3.2K` | 最近一次请求的输入 Token 数 |
 | `Out:856` | 最近一次请求的输出 Token 数 |
 | `Cache:2.1K(65%)` | 最近一次请求的缓存命中 Token 数及命中率（命中数占输入数的百分比） |
+| `Cost:$0.02(¥0.11)` | 最近一次请求的费用（同总费用计算方式） |
 
 仅在有 API 请求记录时显示，Cache 命中率仅在 Cache > 0 时显示。
 

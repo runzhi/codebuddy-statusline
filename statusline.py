@@ -62,15 +62,15 @@ def format_tokens(n):
     else:
         return str(n)
 
+CREDITS_TO_USD = 1 / 100
+USD_TO_CNY = 7
+
 def format_cost(usd):
+    """Format cost as $USD(¥CNY), both with 2 decimal places."""
     if usd is None or usd == 0:
         return ""
-    if usd < 0.01:
-        return f"${usd:.4f}"
-    elif usd < 1:
-        return f"${usd:.3f}"
-    else:
-        return f"${usd:.2f}"
+    cny = usd * USD_TO_CNY
+    return f"${usd:.2f}(¥{cny:.2f})"
 
 def format_duration(ms):
     if ms is None or ms == 0:
@@ -775,11 +775,14 @@ def main():
     if stats.get('request_count', 0) > 0:
         parts.append(f"{CYAN}Req:{NC}{stats['request_count']}")
 
-    cost_str = format_cost(total_cost)
+    # 总费用 = 平台返回的 cost + credits 换算的美元
+    credits_usd = (stats.get('total_credits', 0) or 0) * CREDITS_TO_USD
+    combined_cost = total_cost + credits_usd
+    cost_str = format_cost(combined_cost)
     if cost_str:
-        if total_cost < 0.01:
+        if combined_cost < 0.01:
             cost_color = GREEN
-        elif total_cost < 0.1:
+        elif combined_cost < 0.1:
             cost_color = YELLOW
         else:
             cost_color = RED
@@ -819,10 +822,12 @@ def main():
         if last_cache > 0:
             cache_pct = int(last_cache / last_in * 100) if last_in > 0 else 0
             last_parts.append(f"{DIM}Cache:{NC}{format_tokens(last_cache)}({cache_pct}%)")
+        last_combined = last_cost + last_credits * CREDITS_TO_USD
+        last_cost_str = format_cost(last_combined)
+        if last_cost_str:
+            last_parts.append(f"{RED}Cost:{NC}{last_cost_str}")
         if last_credits > 0:
             last_parts.append(f"{YELLOW}Credits:{NC}{last_credits:.2f}")
-        if last_cost > 0:
-            last_parts.append(f"{RED}Cost:{NC}{format_cost(last_cost)}")
         recent_parts.append(" ".join(last_parts))
 
     # Recent function calls with truncated content
