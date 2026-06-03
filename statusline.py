@@ -780,13 +780,7 @@ def main():
     combined_cost = total_cost + credits_usd
     cost_str = format_cost(combined_cost)
     if cost_str:
-        if combined_cost < 0.01:
-            cost_color = GREEN
-        elif combined_cost < 0.1:
-            cost_color = YELLOW
-        else:
-            cost_color = RED
-        parts.append(f"{cost_color}Cost:{NC}{cost_str}")
+        parts.append(f"{RED}Cost:{NC}{cost_str}")
 
     if stats.get('total_credits', 0) > 0:
         parts.append(f"{YELLOW}Credits:{NC}{stats['total_credits']:.2f}")
