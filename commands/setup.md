@@ -8,7 +8,7 @@ Configure the statusline plugin for CodeBuddy Code.
 Run the setup script to ensure everything is properly configured:
 
 ```bash
-bash ${CODEBUDDY_PLUGIN_ROOT}/scripts/setup.sh
+bash ~/.codebuddy/statusline/scripts/setup.sh
 ```
 
 Show the output to the user. If successful, remind them to restart the session if this is a fresh installation.

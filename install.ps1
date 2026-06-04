@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 $PluginDir = Join-Path $env:USERPROFILE ".codebuddy\statusline"
 $SettingsFile = Join-Path $env:USERPROFILE ".codebuddy\settings.json"
 $CacheDir = Join-Path $env:USERPROFILE ".codebuddy\statusline-cache"
-$RepoUrl = if ($args[0]) { $args[0] } else { "https://git.woa.com/origuo/codebuddy-statusbar.git" }
+$RepoUrl = if ($args[0]) { $args[0] } else { "https://git.woa.com/four-harness/codebuddy-statusline.git" }
 
 Write-Host "=== CodeBuddy Statusline Installer ===" -ForegroundColor Cyan
 Write-Host ""
