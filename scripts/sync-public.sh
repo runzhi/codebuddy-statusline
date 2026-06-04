@@ -30,16 +30,22 @@ echo "[1/3] Rebasing public on master..."
 git checkout public
 git rebase master
 
-# Replace URLs
-echo "[2/3] Replacing URLs for GitHub..."
+# Replace URLs and remove internal-only files
+echo "[2/3] Prepping for GitHub..."
 sed -i '' 's|https://git\.woa\.com/four-harness/codebuddy-statusline\.git|https://github.com/runzhi/codebuddy-statusline.git|g' \
   README.md install.sh install.ps1
 
+# Remove internal-only files before committing
+if [ -f scripts/sync-public.sh ]; then
+  git rm --cached scripts/sync-public.sh 2>/dev/null || true
+  rm -f scripts/sync-public.sh
+fi
+
 # Check if there are changes to commit
-if git diff --quiet; then
-  echo "  URL already up-to-date, skipping commit."
+if git diff --quiet && git diff --cached --quiet; then
+  echo "  No changes needed, skipping commit."
 else
-  git add README.md install.sh install.ps1
+  git add -A
   git commit -m "Public: github.com URLs" --allow-empty
 fi
 
