@@ -45,7 +45,7 @@ fi
 
 # Push
 echo "[3/3] Pushing public to GitHub..."
-git push github public
+git push -f github public
 
 # Restore original branch
 git checkout "$CURRENT_BRANCH"
