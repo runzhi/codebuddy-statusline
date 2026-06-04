@@ -43,9 +43,9 @@ else
   git commit -m "Public: github.com URLs" --allow-empty
 fi
 
-# Push
-echo "[3/3] Pushing public to GitHub..."
-git push -f github public
+# Push (maps local public → github/main)
+echo "[3/3] Pushing public → github/main..."
+git push -f github public:main
 
 # Restore original branch
 git checkout "$CURRENT_BRANCH"
