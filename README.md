@@ -4,9 +4,7 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实
 
 ## 安装
 
-### Git Clone 安装（推荐）
-
-支持自动更新，推荐使用。
+### Git Clone 安装
 
 ```bash
 git clone https://git.woa.com/four-harness/codebuddy-statusline.git ~/.codebuddy/statusline
