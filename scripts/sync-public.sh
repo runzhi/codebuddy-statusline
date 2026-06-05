@@ -15,7 +15,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_DIR"
 
 echo "=== Syncing master → github/main ==="
-git push github master:main
+git push --force-with-lease github master:main
 
 echo ""
 echo "✓ Sync complete: master → github/main (history preserved)"
