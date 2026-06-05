@@ -47,11 +47,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 
 状态栏分三行实时显示：
 
-```
-GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K Auto-Compact×2 Periodic×3 | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.69(¥4.83) | Credits:67.20 | Time:45s | +156/-23
-Tools: ✓ Bash×15 | ✓ Read×2 | ✓ Edit×2 | ✓ Agent | ↑ Agent×2
-Recent: In:3.2K Out:856 Cache:2.1K(65%) Cost:$0.02(¥0.11) Credits:1.50 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
-```
+<pre>
+<span style="color:#5555ff">GLM-5.1</span> | <span style="color:#55ff55">▕███▏      ▏</span><span style="opacity:0.6">32%</span> <span style="opacity:0.6">65.0K/200.0K</span> | <span style="color:#55ff55">In:</span>1.7M <span style="color:#55ff55">Out:</span>6.5K <span style="opacity:0.6">Cache:</span>1.6M <span style="opacity:0.6">Think:</span>221 | <span style="opacity:0.6">Req:</span>35 | <span style="color:#ff5555">Cost:$0.51(¥3.56)</span> | <span style="opacity:0.6">Credits:</span>50.92 | <span style="opacity:0.6">Time:</span>8m47s
+<span style="opacity:0.6">Tools:</span> <span style="color:#55ff55">✓</span> Bash×26 | <span style="color:#55ff55">✓</span> Read×4 | <span style="color:#55ff55">✓</span> DeferExecuteTool | <span style="color:#55ff55">✓</span> Skill×2 | <span style="color:#55ff55">✓</span> ToolSearch×2 | <span style="color:#55ff55">✓</span> WaitForMcpServers
+<span style="opacity:0.6">Recent:</span> <span style="color:#55ff55">In:</span>65.0K <span style="color:#55ff55">Out:</span>90 <span style="opacity:0.6">Cache:</span>64.8K(99%) <span style="color:#ff5555">Cost:$0.02(¥0.11)</span> <span style="opacity:0.6">Credits:</span>1.56 | Bash rm /tmp/iwiki_full.md /tmp/save_iwiki.py 2&gt;/dev/null; echo … | Bash cat &gt; /tmp/save_iwiki.py &lt;&lt; 'PYEOF'
+</pre>
 
 ### 第一行：概览
 
