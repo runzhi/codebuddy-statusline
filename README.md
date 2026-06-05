@@ -10,43 +10,31 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实
 
 **macOS / Linux / Git Bash：**
 
-<details>
-<summary>外网 (GitHub)</summary>
-
+外网 (GitHub)：
 ```bash
 git clone https://github.com/runzhi/codebuddy-statusline.git ~/.codebuddy/statusline
 bash ~/.codebuddy/statusline/install.sh
 ```
-</details>
 
-<details>
-<summary>内网</summary>
-
+内网：
 ```bash
 git clone https://git.woa.com/four-harness/codebuddy-statusline.git ~/.codebuddy/statusline
 bash ~/.codebuddy/statusline/install.sh
 ```
-</details>
 
 **Windows PowerShell：**
 
-<details>
-<summary>外网 (GitHub)</summary>
-
+外网 (GitHub)：
 ```powershell
 git clone https://github.com/runzhi/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
 ```
-</details>
 
-<details>
-<summary>内网</summary>
-
+内网：
 ```powershell
 git clone https://git.woa.com/four-harness/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
 ```
-</details>
 
 安装脚本会自动：
 1. 克隆/更新插件文件
