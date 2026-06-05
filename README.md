@@ -9,14 +9,20 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实
 支持自动更新。
 
 ```bash
+# 内网
 git clone https://git.woa.com/four-harness/codebuddy-statusline.git ~/.codebuddy/statusline
+# 外网
+git clone https://github.com/runzhi/codebuddy-statusline.git ~/.codebuddy/statusline
 bash ~/.codebuddy/statusline/install.sh
 ```
 
 **Windows PowerShell 用户：**
 
 ```powershell
+# 内网
 git clone https://git.woa.com/four-harness/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
+# 外网
+git clone https://github.com/runzhi/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
 ```
 

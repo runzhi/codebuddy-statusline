@@ -10,7 +10,11 @@ NC='\033[0m'
 
 PLUGIN_DIR="$HOME/.codebuddy/statusline"
 SETTINGS_FILE="$HOME/.codebuddy/settings.json"
-REPO_URL="${1:-https://git.woa.com/four-harness/codebuddy-statusline.git}"
+REPO_URL="${1:-}"
+if [ -z "$REPO_URL" ] && [ -d "$PLUGIN_DIR/.git" ]; then
+    REPO_URL=$(git -C "$PLUGIN_DIR" remote get-url origin 2>/dev/null || echo "")
+fi
+: "${REPO_URL:=https://github.com/runzhi/codebuddy-statusline.git}"
 
 # Resolve python command — must verify it actually runs
 # (Windows Store 'python3' stub exists but exits with code 49 without running)
