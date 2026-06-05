@@ -11,15 +11,6 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实
 **macOS / Linux / Git Bash：**
 
 <details>
-<summary>内网</summary>
-
-```bash
-git clone https://git.woa.com/four-harness/codebuddy-statusline.git ~/.codebuddy/statusline
-bash ~/.codebuddy/statusline/install.sh
-```
-</details>
-
-<details>
 <summary>外网 (GitHub)</summary>
 
 ```bash
@@ -28,22 +19,31 @@ bash ~/.codebuddy/statusline/install.sh
 ```
 </details>
 
-**Windows PowerShell：**
-
 <details>
 <summary>内网</summary>
 
-```powershell
-git clone https://git.woa.com/four-harness/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
+```bash
+git clone https://git.woa.com/four-harness/codebuddy-statusline.git ~/.codebuddy/statusline
+bash ~/.codebuddy/statusline/install.sh
 ```
 </details>
+
+**Windows PowerShell：**
 
 <details>
 <summary>外网 (GitHub)</summary>
 
 ```powershell
 git clone https://github.com/runzhi/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
+```
+</details>
+
+<details>
+<summary>内网</summary>
+
+```powershell
+git clone https://git.woa.com/four-harness/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
 ```
 </details>
