@@ -734,24 +734,33 @@ def main():
     if isinstance(current_usage, dict):
         current_tokens = current_usage.get('input_tokens', 0) or 0
 
-    if used_pct is not None and used_pct > 0:
-        # used_pct can be 0-100 (percentage) or 0-1 (ratio); normalize to 0-1
-        pct = min(used_pct / 100.0, 1.0) if used_pct > 1 else min(used_pct, 1.0)
-        bar, bar_color = make_progress_bar(pct, width=10)
-        pct_display = int(pct * 100)
-        if ctx_size > 0 and current_tokens > 0:
-            ctx_str = f"{format_tokens(current_tokens)}/{format_tokens(ctx_size)}"
-        elif ctx_size > 0:
-            ctx_str = format_tokens(ctx_size)
+    if used_pct is not None:
+        try:
+            # used_pct can be 0-100 (percentage) or 0-1 (ratio); normalize to 0-1
+            pct = min(used_pct / 100.0, 1.0) if used_pct > 1 else min(used_pct, 1.0)
+        except (TypeError, ValueError):
+            used_pct = None
         else:
-            ctx_str = ""
-        ctx_part = f"{bar_color}▕{bar}▏{NC}{DIM}{pct_display}%{NC}"
-        if ctx_str:
-            ctx_part += f" {DIM}{ctx_str}{NC}"
-        if stats.get('compact_count', 0) > 0:
-            ctx_part += f" {YELLOW}Auto-Compact×{stats['compact_count']}{NC}"
-        if stats.get('periodic_count', 0) > 0:
-            ctx_part += f" {DIM}Periodic×{stats['periodic_count']}{NC}"
+            bar, bar_color = make_progress_bar(pct, width=10)
+            pct_display = int(pct * 100)
+            if ctx_size > 0 and current_tokens > 0:
+                ctx_str = f"{format_tokens(current_tokens)}/{format_tokens(ctx_size)}"
+            elif ctx_size > 0:
+                ctx_str = format_tokens(ctx_size)
+            else:
+                ctx_str = ""
+            ctx_part = f"{bar_color}▕{bar}▏{NC}{DIM}{pct_display}%{NC}"
+            if ctx_str:
+                ctx_part += f" {DIM}{ctx_str}{NC}"
+            if stats.get('compact_count', 0) > 0:
+                ctx_part += f" {YELLOW}Auto-Compact×{stats['compact_count']}{NC}"
+            if stats.get('periodic_count', 0) > 0:
+                ctx_part += f" {DIM}Periodic×{stats['periodic_count']}{NC}"
+            parts.append(ctx_part)
+
+    if used_pct is None and ctx_size > 0:
+        # No percentage data, but we still have max context size
+        ctx_part = f"{DIM}Max:{format_tokens(ctx_size)}{NC}"
         parts.append(ctx_part)
 
     # Token usage display.
