@@ -47,11 +47,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 
 状态栏分三行实时显示：
 
-<pre>
-<span style="color:#5555ff">GLM-5.1</span> | <span style="color:#55ff55">▕███▏      ▏</span><span style="opacity:0.6">32%</span> <span style="opacity:0.6">65.0K/200.0K</span> | <span style="color:#55ff55">In:</span>1.7M <span style="color:#55ff55">Out:</span>6.5K <span style="opacity:0.6">Cache:</span>1.6M <span style="opacity:0.6">Think:</span>221 | <span style="color:#55ffff">Req:</span>35 | <span style="color:#ff5555">Cost:</span>$0.51(¥3.56) | <span style="color:#ffff55">Credits:</span>50.92 | <span style="opacity:0.6">Time:</span>8m47s
-<span style="opacity:0.6">Tools:</span> <span style="color:#55ff55">✓</span> Bash<span style="opacity:0.6">×26</span> | <span style="color:#55ff55">✓</span> Read<span style="opacity:0.6">×4</span> | <span style="color:#55ff55">✓</span> DeferExecuteTool | <span style="color:#55ff55">✓</span> Skill<span style="opacity:0.6">×2</span> | <span style="color:#55ff55">✓</span> ToolSearch<span style="opacity:0.6">×2</span> | <span style="color:#55ff55">✓</span> WaitForMcpServers
-<span style="opacity:0.6">Recent:</span> <span style="color:#55ff55">In:</span>65.0K <span style="color:#55ff55">Out:</span>90 <span style="opacity:0.6">Cache:</span>64.8K(99%) <span style="color:#ff5555">Cost:</span>$0.02(¥0.11) <span style="color:#ffff55">Credits:</span>1.56 | <span style="color:#55ffff">Bash</span> <span style="opacity:0.6">pip install -r requirements.txt</span> | <span style="color:#55ffff">Read</span> <span style="opacity:0.6">/data/app/main.py</span>
-</pre>
+![](docs/preview.webp)
 
 ### 第一行：概览
 
