@@ -8,13 +8,29 @@ CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实
 
 支持自动更新。
 
+**macOS / Linux / Git Bash：**
+
+外网 (GitHub)：
+```bash
+git clone https://github.com/runzhi/codebuddy-statusline.git ~/.codebuddy/statusline
+bash ~/.codebuddy/statusline/install.sh
+```
+
+内网：
 ```bash
 git clone https://git.woa.com/four-harness/codebuddy-statusline.git ~/.codebuddy/statusline
 bash ~/.codebuddy/statusline/install.sh
 ```
 
-**Windows PowerShell 用户：**
+**Windows PowerShell：**
 
+外网 (GitHub)：
+```powershell
+git clone https://github.com/runzhi/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
+```
+
+内网：
 ```powershell
 git clone https://git.woa.com/four-harness/codebuddy-statusline.git "$env:USERPROFILE\.codebuddy\statusline"
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline\install.ps1"
@@ -31,11 +47,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 
 状态栏分三行实时显示：
 
-```
-GLM-5.1 | ▕████▍     ▏44% 56.7K/128.0K Auto-Compact×2 Periodic×3 | In:2.4M Out:10.7K Cache:2.2M Think:952 | Req:29 | Cost:$0.69(¥4.83) | Credits:67.20 | Time:45s | +156/-23
-Tools: ✓ Bash×15 | ✓ Read×2 | ✓ Edit×2 | ✓ Agent | ↑ Agent×2
-Recent: In:3.2K Out:856 Cache:2.1K(65%) Cost:$0.02(¥0.11) Credits:1.50 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
-```
+<pre>
+<span style="color:#5555ff">GLM-5.1</span> | <span style="color:#55ff55">▕███▏      ▏</span><span style="opacity:0.6">32%</span> <span style="opacity:0.6">65.0K/200.0K</span> | <span style="color:#55ff55">In:</span>1.7M <span style="color:#55ff55">Out:</span>6.5K <span style="opacity:0.6">Cache:</span>1.6M <span style="opacity:0.6">Think:</span>221 | <span style="color:#55ffff">Req:</span>35 | <span style="color:#ff5555">Cost:</span>$0.51(¥3.56) | <span style="color:#ffff55">Credits:</span>50.92 | <span style="opacity:0.6">Time:</span>8m47s
+<span style="opacity:0.6">Tools:</span> <span style="color:#55ff55">✓</span> Bash<span style="opacity:0.6">×26</span> | <span style="color:#55ff55">✓</span> Read<span style="opacity:0.6">×4</span> | <span style="color:#55ff55">✓</span> DeferExecuteTool | <span style="color:#55ff55">✓</span> Skill<span style="opacity:0.6">×2</span> | <span style="color:#55ff55">✓</span> ToolSearch<span style="opacity:0.6">×2</span> | <span style="color:#55ff55">✓</span> WaitForMcpServers
+<span style="opacity:0.6">Recent:</span> <span style="color:#55ff55">In:</span>65.0K <span style="color:#55ff55">Out:</span>90 <span style="opacity:0.6">Cache:</span>64.8K(99%) <span style="color:#ff5555">Cost:</span>$0.02(¥0.11) <span style="color:#ffff55">Credits:</span>1.56 | <span style="color:#55ffff">Bash</span> <span style="opacity:0.6">pip install -r requirements.txt</span> | <span style="color:#55ffff">Read</span> <span style="opacity:0.6">/data/app/main.py</span>
+</pre>
 
 ### 第一行：概览
 
