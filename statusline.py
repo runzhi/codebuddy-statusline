@@ -321,50 +321,19 @@ def maybe_auto_update():
         return
 
     try:
-        pid = os.fork()
-    except OSError:
-        return
-
-    if pid != 0:
-        try:
-            os.waitpid(pid, 0)
-        except OSError:
-            pass
-        return
-
-    try:
-        os.setsid()
-    except OSError:
-        os._exit(0)
-
-    try:
-        pid2 = os.fork()
-    except OSError:
-        os._exit(0)
-
-    if pid2 != 0:
-        os._exit(0)
-
-    try:
-        devnull = os.open(os.devnull, os.O_RDWR)
-        os.dup2(devnull, 0)
-        os.dup2(devnull, 1)
-        os.dup2(devnull, 2)
-        os.close(devnull)
-    except OSError:
-        os._exit(0)
-
-    try:
         import subprocess
-        subprocess.run(
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        subprocess.Popen(
             ["git", "-C", PLUGIN_DIR, "pull", "--ff-only", "--quiet"],
-            timeout=30,
-            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            **kwargs,
         )
     except Exception:
         pass
-    finally:
-        os._exit(0)
 
 
 def cleanup_old_caches(current_session_id):
