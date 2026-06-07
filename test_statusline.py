@@ -58,16 +58,16 @@ class TestFormatCost(unittest.TestCase):
         self.assertEqual(format_cost(0), "")
 
     def test_tiny(self):
-        self.assertEqual(format_cost(0.005), "$0.0050")
+        self.assertEqual(format_cost(0.005), "$0.01(¥0.04)")
 
     def test_small(self):
-        self.assertEqual(format_cost(0.05), "$0.050")
+        self.assertEqual(format_cost(0.05), "$0.05(¥0.35)")
 
     def test_medium(self):
-        self.assertEqual(format_cost(0.5), "$0.500")
+        self.assertEqual(format_cost(0.5), "$0.50(¥3.50)")
 
     def test_large(self):
-        self.assertEqual(format_cost(5.0), "$5.00")
+        self.assertEqual(format_cost(5.0), "$5.00(¥35.00)")
 
 
 class TestFormatDuration(unittest.TestCase):
