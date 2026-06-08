@@ -692,6 +692,10 @@ def main():
 
     parts = []
 
+    cwd_name = os.path.basename(os.getcwd())
+    if cwd_name:
+        parts.append(f"{CYAN}{cwd_name}{NC}")
+
     if model_name:
         parts.append(f"{BLUE}{model_name}{NC}")
 
