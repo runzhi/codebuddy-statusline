@@ -953,6 +953,214 @@ class TestAutoUpdate(unittest.TestCase):
         self.assertLess(elapsed_ms, 100, f"maybe_auto_update took {elapsed_ms:.1f}ms")
 
 
+class TestPartialLineRaceCondition(unittest.TestCase):
+    """Tests for the fix: when a partial JSONL line is read (writer still
+    appending), the offset should NOT advance past it, so the line gets
+    re-read on the next invocation once the writer has finished."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.transcript_path = os.path.join(self.tmpdir, "test.jsonl")
+        self.cache_dir = os.path.join(self.tmpdir, "cache")
+        import statusline
+        self._orig_cache_dir = statusline.CACHE_DIR
+        statusline.CACHE_DIR = self.cache_dir
+
+    def tearDown(self):
+        import statusline
+        statusline.CACHE_DIR = self._orig_cache_dir
+        shutil.rmtree(self.tmpdir)
+
+    def _write_lines(self, lines):
+        with open(self.transcript_path, 'w') as f:
+            for line in lines:
+                f.write(json.dumps(line) + '\n')
+
+    def test_partial_last_line_main_transcript(self):
+        """A partial last line (no trailing \\n) should not advance offset."""
+        # Write a complete line + a partial line (simulating writer mid-write)
+        with open(self.transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+            f.write('{"type": "function_call", "name": "Rea')  # partial, no \n
+
+        stats = parse_transcript_incremental(self.transcript_path, "partial-test")
+        # Only the complete Bash line should be counted
+        self.assertEqual(stats["tool_counts"]["Bash"], 1)
+        self.assertNotIn("Read", stats["tool_counts"])
+
+    def test_partial_line_retried_after_completion(self):
+        """A partial line should be retried after the writer finishes it."""
+        # First read: partial line at the end
+        with open(self.transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+            f.write('{"type": "function_call", "name": "Rea')
+
+        stats1 = parse_transcript_incremental(self.transcript_path, "partial-retry")
+        self.assertEqual(stats1["tool_counts"]["Bash"], 1)
+        self.assertNotIn("Read", stats1["tool_counts"])
+
+        # Now the writer finishes the line (append the rest + newline)
+        with open(self.transcript_path, 'r') as f:
+            content = f.read()
+        with open(self.transcript_path, 'w') as f:
+            f.write(content + 'd"}\n')
+
+        stats2 = parse_transcript_incremental(self.transcript_path, "partial-retry")
+        # Read should now be counted (offset was rewound)
+        self.assertEqual(stats2["tool_counts"]["Bash"], 1)
+        self.assertEqual(stats2["tool_counts"]["Read"], 1)
+
+    def test_partial_line_with_new_data_after(self):
+        """After a partial line, new complete lines appended after it are
+        also picked up once the partial line is completed."""
+        # First read: partial line
+        with open(self.transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+            f.write('{"type": "function_call", "name": "Rea')
+
+        parse_transcript_incremental(self.transcript_path, "partial-extra")
+
+        # Writer completes the partial line AND appends a new complete line
+        with open(self.transcript_path, 'r') as f:
+            content = f.read()
+        with open(self.transcript_path, 'w') as f:
+            f.write(content + 'd"}\n')
+            f.write(json.dumps({'type': 'function_call', 'name': 'Edit'}) + '\n')
+
+        stats = parse_transcript_incremental(self.transcript_path, "partial-extra")
+        self.assertEqual(stats["tool_counts"]["Bash"], 1)
+        self.assertEqual(stats["tool_counts"]["Read"], 1)
+        self.assertEqual(stats["tool_counts"]["Edit"], 1)
+
+    def test_malformed_line_with_newline_is_not_retried(self):
+        """A malformed line that HAS a trailing \\n is a genuinely bad line,
+        not a partial write — it should be skipped permanently."""
+        with open(self.transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+            f.write('{"broken json}\n')  # has \n but invalid JSON
+            f.write(json.dumps({'type': 'function_call', 'name': 'Edit'}) + '\n')
+
+        stats = parse_transcript_incremental(self.transcript_path, "malformed-test")
+        self.assertEqual(stats["tool_counts"]["Bash"], 1)
+        self.assertEqual(stats["tool_counts"]["Edit"], 1)
+        # broken json line is skipped, not retried
+
+    def test_partial_subagent_line(self):
+        """Sub-agent transcript: partial last line should not advance offset."""
+        session_dir = os.path.join(self.tmpdir, "sub-partial-sess")
+        subagents_dir = os.path.join(session_dir, "subagents")
+        os.makedirs(subagents_dir)
+        transcript_path = os.path.join(self.tmpdir, "sub-partial-sess.jsonl")
+
+        # Main transcript
+        with open(transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+
+        # Sub-agent transcript with partial last line
+        sub_path = os.path.join(subagents_dir, "agent-abc.jsonl")
+        with open(sub_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Read'}) + '\n')
+            f.write('{"type": "function_call", "name": "Grep", "a')  # partial
+
+        stats = parse_transcript_incremental(transcript_path, "sub-partial-sess")
+        self.assertEqual(stats["tool_counts"]["Bash"], 1)
+        self.assertEqual(stats["tool_counts"]["Read"], 1)
+        # Grep not counted yet
+        self.assertNotIn("Grep", stats["tool_counts"])
+
+    def test_partial_subagent_line_retried(self):
+        """Sub-agent partial line is retried after completion."""
+        session_dir = os.path.join(self.tmpdir, "sub-partial-retry")
+        subagents_dir = os.path.join(session_dir, "subagents")
+        os.makedirs(subagents_dir)
+        transcript_path = os.path.join(self.tmpdir, "sub-partial-retry.jsonl")
+
+        with open(transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+
+        sub_path = os.path.join(subagents_dir, "agent-abc.jsonl")
+        with open(sub_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Read'}) + '\n')
+            f.write('{"type": "function_call", "name": "Grep", "a')
+
+        parse_transcript_incremental(transcript_path, "sub-partial-retry")
+
+        # Complete the partial line
+        with open(sub_path, 'r') as f:
+            content = f.read()
+        with open(sub_path, 'w') as f:
+            f.write(content + 'rgs": {}}\n')
+
+        stats = parse_transcript_incremental(transcript_path, "sub-partial-retry")
+        self.assertEqual(stats["tool_counts"]["Read"], 1)
+        self.assertEqual(stats["tool_counts"]["Grep"], 1)
+
+    def test_partial_line_offset_preserved_in_cache(self):
+        """The rewound offset for a partial line must be saved to cache."""
+        with open(self.transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+            f.write('{"type": "function_call", "name": "Rea')
+
+        parse_transcript_incremental(self.transcript_path, "offset-cache-test")
+
+        cache = load_cache("offset-cache-test")
+        self.assertIsNotNone(cache)
+        # The offset should be right after the first complete line,
+        # NOT past the partial line.
+        first_line_size = len(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+        self.assertEqual(cache["main_offset"], first_line_size)
+
+
+class TestAtomicCacheWrite(unittest.TestCase):
+    """Tests for atomic cache write (write-to-temp + os.replace)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        import statusline
+        self._orig_cache_dir = statusline.CACHE_DIR
+        statusline.CACHE_DIR = self.tmpdir
+
+    def tearDown(self):
+        import statusline
+        statusline.CACHE_DIR = self._orig_cache_dir
+        shutil.rmtree(self.tmpdir)
+
+    def test_no_tmp_file_left_after_save(self):
+        """save_cache should not leave .tmp files behind."""
+        stats = new_stats()
+        stats["tool_counts"]["Bash"] = 3
+        save_cache("atomic-test", stats, 512)
+
+        files = os.listdir(self.tmpdir)
+        tmp_files = [f for f in files if f.endswith('.tmp')]
+        self.assertEqual(tmp_files, [], f"Leftover .tmp files: {tmp_files}")
+
+    def test_cache_is_valid_json_after_save(self):
+        """The cache file should always be valid JSON (never partially written)."""
+        stats = new_stats()
+        stats["total_input"] = 99999
+        save_cache("atomic-json-test", stats, 2048)
+
+        cache = load_cache("atomic-json-test")
+        self.assertIsNotNone(cache)
+        self.assertEqual(cache["stats"]["total_input"], 99999)
+        self.assertEqual(cache["main_offset"], 2048)
+
+    def test_overwrite_existing_cache_atomically(self):
+        """Overwriting an existing cache should not corrupt it."""
+        stats1 = new_stats()
+        stats1["total_input"] = 100
+        save_cache("overwrite-test", stats1, 100)
+
+        stats2 = new_stats()
+        stats2["total_input"] = 200
+        save_cache("overwrite-test", stats2, 200)
+
+        cache = load_cache("overwrite-test")
+        self.assertEqual(cache["stats"]["total_input"], 200)
+        self.assertEqual(cache["main_offset"], 200)
+
+
 class TestMainNullSafety(unittest.TestCase):
     """Regression tests: CodeBuddy may send null for model/cost/context_window."""
 
