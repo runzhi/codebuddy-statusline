@@ -140,7 +140,7 @@ def get_git_info(cwd):
 
     return {"branch": branch, "dirty": dirty, "ahead": ahead, "behind": behind}
 
-GIT_BRANCH_ICON = '\ue725'  #  Nerd Font icon (U+E725)
+GIT_BRANCH_ICON = '\ue0a0'  # Powerline branch icon (U+E0A0)
 
 def format_git_info(info):
     """Format git info dict into a colored string for the statusline."""
