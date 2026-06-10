@@ -10,6 +10,8 @@ In/Out/Cache/Credits include sub-agent data for a complete picture.
 import json
 import sys
 import os
+import re
+import subprocess
 import time
 
 # Fix Windows GBK encoding: stdout defaults to GBK on Chinese Windows,
@@ -81,6 +83,81 @@ def format_duration(ms):
     m = s // 60
     s = s % 60
     return f"{m}m{s}s"
+
+# Parses the first line of `git status --porcelain=v1 --branch` output.
+# Examples:
+#   ## master
+#   ## master...origin/master
+#   ## master...origin/master [ahead 2]
+#   ## master...origin/master [ahead 2, behind 1]
+#   ## HEAD (no branch)
+_GIT_BRANCH_LINE_RE = re.compile(
+    r'^## (?:'
+    r'(?P<detached>HEAD \(no branch\))'
+    r'|'
+    r'(?P<branch>[^.\s]+)(?:\.\.\.[^\s]+)?'
+    r'(?: \[(?:ahead (?P<ahead>\d+))?(?:, )?(?:behind (?P<behind>\d+))?\])?'
+    r')$'
+)
+
+def get_git_info(cwd):
+    """Return git info for *cwd* or None if unavailable.
+
+    Returns: {"branch": str, "dirty": bool, "ahead": int, "behind": int}
+    Branch is "(detached)" for detached HEAD.
+    """
+    if not cwd or not os.path.isdir(cwd):
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, "status", "--porcelain=v1", "--branch"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+
+    lines = result.stdout.splitlines()
+    if not lines:
+        return None
+
+    m = _GIT_BRANCH_LINE_RE.match(lines[0])
+    if not m:
+        return None
+
+    if m.group('detached'):
+        branch = "(detached)"
+    else:
+        branch = m.group('branch')
+
+    ahead = int(m.group('ahead')) if m.group('ahead') else 0
+    behind = int(m.group('behind')) if m.group('behind') else 0
+    dirty = len(lines) > 1
+
+    return {"branch": branch, "dirty": dirty, "ahead": ahead, "behind": behind}
+
+def format_git_info(info):
+    """Format git info dict into a colored string for the statusline."""
+    if not info:
+        return ""
+    suffix = ""
+    if info.get("dirty"):
+        suffix += "*"
+    ahead = info.get("ahead", 0)
+    behind = info.get("behind", 0)
+    if ahead:
+        suffix += f" ↑{ahead}"
+    if behind:
+        suffix += f" ↓{behind}"
+    branch = info.get("branch", "")
+    if not branch:
+        return ""
+    if suffix:
+        return f"{CYAN}{branch}{NC}{DIM}{suffix}{NC}"
+    return f"{CYAN}{branch}{NC}"
 
 def make_progress_bar(pct, width=10):
     """Make a Unicode progress bar with color based on usage."""
@@ -733,6 +810,15 @@ def main():
     cwd_name = os.path.basename(os.getcwd())
     if cwd_name:
         parts.append(f"{CYAN}{cwd_name}{NC}")
+
+    # Git branch info (between cwd and model name)
+    workspace = input_data.get('workspace') or {}
+    git_cwd = workspace.get('current_dir') or os.getcwd()
+    git_info = get_git_info(git_cwd)
+    if git_info:
+        git_part = format_git_info(git_info)
+        if git_part:
+            parts.append(git_part)
 
     if model_name:
         parts.append(f"{BLUE}{model_name}{NC}")
