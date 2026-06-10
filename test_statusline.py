@@ -17,7 +17,7 @@ from statusline import (
     parse_transcript_incremental as _parse_transcript_incremental,
     load_cache, save_cache,
     cleanup_old_caches, maybe_auto_update,
-    get_git_info, format_git_info,
+    get_git_info, format_git_info, GIT_BRANCH_ICON,
     CACHE_DIR, CACHE_VERSION, IS_PLUGIN_MODE,
 )
 
@@ -1413,27 +1413,27 @@ class TestFormatGitInfo(unittest.TestCase):
 
     def test_clean_branch(self):
         s = format_git_info({"branch": "master", "dirty": False, "ahead": 0, "behind": 0})
-        self.assertEqual(self._plain(s), "master")
+        self.assertEqual(self._plain(s), f"on {GIT_BRANCH_ICON} master")
 
     def test_dirty(self):
         s = format_git_info({"branch": "master", "dirty": True, "ahead": 0, "behind": 0})
-        self.assertEqual(self._plain(s), "master*")
+        self.assertEqual(self._plain(s), f"on {GIT_BRANCH_ICON} master*")
 
     def test_ahead(self):
         s = format_git_info({"branch": "master", "dirty": False, "ahead": 2, "behind": 0})
-        self.assertEqual(self._plain(s), "master ↑2")
+        self.assertEqual(self._plain(s), f"on {GIT_BRANCH_ICON} master ↑2")
 
     def test_behind(self):
         s = format_git_info({"branch": "master", "dirty": False, "ahead": 0, "behind": 1})
-        self.assertEqual(self._plain(s), "master ↓1")
+        self.assertEqual(self._plain(s), f"on {GIT_BRANCH_ICON} master ↓1")
 
     def test_ahead_and_behind(self):
         s = format_git_info({"branch": "master", "dirty": False, "ahead": 2, "behind": 1})
-        self.assertEqual(self._plain(s), "master ↑2 ↓1")
+        self.assertEqual(self._plain(s), f"on {GIT_BRANCH_ICON} master ↑2 ↓1")
 
     def test_dirty_with_ahead_behind(self):
         s = format_git_info({"branch": "main", "dirty": True, "ahead": 1, "behind": 1})
-        self.assertEqual(self._plain(s), "main* ↑1 ↓1")
+        self.assertEqual(self._plain(s), f"on {GIT_BRANCH_ICON} main* ↑1 ↓1")
 
     def test_empty_branch(self):
         s = format_git_info({"branch": "", "dirty": False, "ahead": 0, "behind": 0})

@@ -42,6 +42,7 @@ GREEN = '\033[0;32m'
 YELLOW = '\033[1;33m'
 BLUE = '\033[0;34m'
 RED = '\033[0;31m'
+PURPLE = '\033[0;35m'
 DIM = '\033[2m'
 NC = '\033[0m'
 
@@ -139,6 +140,8 @@ def get_git_info(cwd):
 
     return {"branch": branch, "dirty": dirty, "ahead": ahead, "behind": behind}
 
+GIT_BRANCH_ICON = '\ue725'  #  Nerd Font icon (U+E725)
+
 def format_git_info(info):
     """Format git info dict into a colored string for the statusline."""
     if not info:
@@ -155,9 +158,8 @@ def format_git_info(info):
     branch = info.get("branch", "")
     if not branch:
         return ""
-    if suffix:
-        return f"{CYAN}{branch}{NC}{DIM}{suffix}{NC}"
-    return f"{CYAN}{branch}{NC}"
+    suffix_part = f"{RED}{suffix}{NC}" if suffix else NC
+    return f"{DIM}on{NC} {PURPLE}{GIT_BRANCH_ICON} {branch}{suffix_part}"
 
 def make_progress_bar(pct, width=10):
     """Make a Unicode progress bar with color based on usage."""
@@ -808,17 +810,19 @@ def main():
     parts = []
 
     cwd_name = os.path.basename(os.getcwd())
-    if cwd_name:
-        parts.append(f"{CYAN}{cwd_name}{NC}")
 
     # Git branch info (between cwd and model name)
     workspace = input_data.get('workspace') or {}
     git_cwd = workspace.get('current_dir') or os.getcwd()
     git_info = get_git_info(git_cwd)
-    if git_info:
-        git_part = format_git_info(git_info)
-        if git_part:
-            parts.append(git_part)
+    git_part = format_git_info(git_info) if git_info else ""
+
+    if cwd_name and git_part:
+        parts.append(f"{CYAN}{cwd_name}{NC} {git_part}")
+    elif cwd_name:
+        parts.append(f"{CYAN}{cwd_name}{NC}")
+    elif git_part:
+        parts.append(git_part)
 
     if model_name:
         parts.append(f"{BLUE}{model_name}{NC}")
