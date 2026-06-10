@@ -464,17 +464,21 @@ def parse_transcript_incremental(transcript_path, session_id):
             pass
         else:
             delta = new_stats()
-            with open(transcript_path, 'r', encoding='utf-8') as f:
+            with open(transcript_path, 'rb') as f:
                 if main_offset > 0:
                     f.seek(main_offset)
                 has_new_data = False
                 failed_line_offset = None
                 while True:
                     line_start = f.tell()
-                    line = f.readline()
-                    if not line:
+                    raw_line = f.readline()
+                    if not raw_line:
                         break
                     has_new_data = True
+                    try:
+                        line = raw_line.decode('utf-8')
+                    except UnicodeDecodeError:
+                        continue
                     # Pre-filter: skip lines that can't contribute to stats.
                     # Must cover all entry types processed by add_line_to_stats:
                     # function_call, function_call_result, summary, and anything with providerData.
@@ -493,7 +497,7 @@ def parse_transcript_incremental(transcript_path, session_id):
                         # (writer hasn't finished yet). Don't advance offset
                         # past this line — save its start position so we can
                         # retry next cycle.
-                        if isinstance(line, str) and not line.endswith('\n'):
+                        if not line.endswith('\n'):
                             failed_line_offset = line_start
                         continue
 
@@ -560,17 +564,21 @@ def parse_transcript_incremental(transcript_path, session_id):
                         continue
 
                     sub_delta = new_stats()
-                    with open(sub_path, 'r', encoding='utf-8') as f:
+                    with open(sub_path, 'rb') as f:
                         if sub_offset > 0:
                             f.seek(sub_offset)
                         sub_has_new = False
                         sub_failed_offset = None
                         while True:
                             line_start = f.tell()
-                            line = f.readline()
-                            if not line:
+                            raw_line = f.readline()
+                            if not raw_line:
                                 break
                             sub_has_new = True
+                            try:
+                                line = raw_line.decode('utf-8')
+                            except UnicodeDecodeError:
+                                continue
                             if ('function_call' not in line
                                     and 'providerData' not in line
                                     and '"summary"' not in line):
@@ -581,7 +589,7 @@ def parse_transcript_incremental(transcript_path, session_id):
                                 add_line_to_stats(sub_delta, data)
                             except (json.JSONDecodeError, KeyError, TypeError):
                                 # Partial line: rewind so it gets re-read next cycle
-                                if isinstance(line, str) and not line.endswith('\n'):
+                                if not line.endswith('\n'):
                                     sub_failed_offset = line_start
                                 continue
                         new_sub_offset = f.tell()
