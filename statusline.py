@@ -346,9 +346,16 @@ def cleanup_old_caches(current_session_id):
     max_age = CACHE_MAX_AGE_DAYS * 86400  # seconds
     try:
         for fname in os.listdir(CACHE_DIR):
+            fpath = os.path.join(CACHE_DIR, fname)
+            # Clean up stale .tmp files from interrupted atomic writes
+            if fname.endswith('.tmp'):
+                try:
+                    os.remove(fpath)
+                except OSError:
+                    pass
+                continue
             if not fname.endswith('.json'):
                 continue
-            fpath = os.path.join(CACHE_DIR, fname)
             key = fname[:-5]  # strip .json
             # Protect current session's cache
             if key == current_session_id:
@@ -479,6 +486,13 @@ def parse_transcript_incremental(transcript_path, session_id):
                         line = raw_line.decode('utf-8')
                     except UnicodeDecodeError:
                         continue
+                    # If line has no trailing newline, the writer is likely
+                    # mid-write. Stop reading here so we don't advance the
+                    # offset past this partial line. On the next cycle, we'll
+                    # re-read from this offset and hopefully get the full line.
+                    if not line.endswith('\n'):
+                        failed_line_offset = line_start
+                        break
                     # Pre-filter: skip lines that can't contribute to stats.
                     # Must cover all entry types processed by add_line_to_stats:
                     # function_call, function_call_result, summary, and anything with providerData.
@@ -490,26 +504,14 @@ def parse_transcript_incremental(transcript_path, session_id):
                         continue
                     try:
                         data = json.loads(line)
-                        failed_line_offset = None
                         add_line_to_stats(delta, data)
                     except (json.JSONDecodeError, KeyError, TypeError):
-                        # JSONDecodeError likely means a partial line was read
-                        # (writer hasn't finished yet). Don't advance offset
-                        # past this line — save its start position so we can
-                        # retry next cycle.
-                        if not line.endswith('\n'):
-                            failed_line_offset = line_start
                         continue
 
-                new_offset = f.tell()
+                new_offset = failed_line_offset if failed_line_offset is not None else f.tell()
 
             if has_new_data:
                 any_new_data = True
-
-            # If the last line was a partial read (no trailing newline and
-            # failed to parse), rewind the offset so it gets re-read next time.
-            if failed_line_offset is not None:
-                new_offset = failed_line_offset
 
             if need_full_reparse:
                 # Stats were reset; delta IS the new stats
@@ -579,24 +581,20 @@ def parse_transcript_incremental(transcript_path, session_id):
                                 line = raw_line.decode('utf-8')
                             except UnicodeDecodeError:
                                 continue
+                            # Partial line: stop reading, retry next cycle
+                            if not line.endswith('\n'):
+                                sub_failed_offset = line_start
+                                break
                             if ('function_call' not in line
                                     and 'providerData' not in line
                                     and '"summary"' not in line):
                                 continue
                             try:
                                 data = json.loads(line)
-                                sub_failed_offset = None
                                 add_line_to_stats(sub_delta, data)
                             except (json.JSONDecodeError, KeyError, TypeError):
-                                # Partial line: rewind so it gets re-read next cycle
-                                if not line.endswith('\n'):
-                                    sub_failed_offset = line_start
                                 continue
-                        new_sub_offset = f.tell()
-
-                    # If last line was a partial read, rewind offset
-                    if sub_failed_offset is not None:
-                        new_sub_offset = sub_failed_offset
+                        new_sub_offset = sub_failed_offset if sub_failed_offset is not None else f.tell()
 
                     if sub_has_new:
                         any_new_data = True
