@@ -20,7 +20,7 @@ from statusline import (
     cleanup_old_caches, maybe_auto_update,
     get_git_info, format_git_info, GIT_BRANCH_ICON,
     truncate_to_width, get_statusline_width, get_statusline_width_from_input,
-    _tty_columns, _visible_len,
+    _tty_columns, _windows_columns, _visible_len,
     CACHE_DIR, CACHE_VERSION, IS_PLUGIN_MODE,
 )
 
@@ -593,10 +593,13 @@ class TestTtyColumns(unittest.TestCase):
     """/dev/tty TIOCGWINSZ is the only path that sees the real TTY when
     the statusline is invoked through a pipe. shutil cannot help here."""
 
-    def test_returns_positive_int(self):
+    def test_returns_non_negative_int(self):
+        # _tty_columns() returns 0 when no TTY is available (pipe/CI),
+        # which is valid.  Positive values are returned when a real TTY
+        # is attached (e.g. interactive terminal).
         w = _tty_columns()
         self.assertIsInstance(w, int)
-        self.assertGreater(w, 0)
+        self.assertGreaterEqual(w, 0)
 
     def test_caches_within_one_second(self):
         # First call populates cache, second call within 1s must hit it
@@ -618,6 +621,41 @@ class TestTtyColumns(unittest.TestCase):
         with unittest.mock.patch('builtins.open', side_effect=OSError("no tty")):
             w = _tty_columns()
             self.assertEqual(w, 0)
+
+
+class TestWindowsColumns(unittest.TestCase):
+    """_windows_columns() tries /dev/tty then ctypes, returns 0 on failure."""
+
+    def test_returns_non_negative_int(self):
+        w = _windows_columns()
+        self.assertIsInstance(w, int)
+        self.assertGreaterEqual(w, 0)
+
+    def test_returns_zero_when_no_tty_and_no_console(self):
+        # Mock /dev/tty to fail, mock GetConsoleScreenBufferInfo to fail
+        import statusline
+        with unittest.mock.patch('builtins.open', side_effect=OSError("no tty")):
+            # Also patch the kernel32 call to return failure
+            mock_kernel32 = unittest.mock.MagicMock()
+            mock_kernel32.GetConsoleScreenBufferInfo.return_value = 0
+            mock_kernel32.GetStdHandle.return_value = 0
+            with unittest.mock.patch.dict('sys.modules', {'ctypes.windll': unittest.mock.MagicMock(kernel32=mock_kernel32)}):
+                w = _windows_columns()
+                self.assertEqual(w, 0)
+
+    def test_dev_tty_tried_first(self):
+        # Verify /dev/tty is attempted by checking that open is called with it
+        calls = []
+        orig_open = open
+
+        def tracking_open(path, *args, **kwargs):
+            calls.append(str(path))
+            raise OSError("mock: no tty")
+
+        with unittest.mock.patch('builtins.open', side_effect=tracking_open):
+            _windows_columns()
+        self.assertTrue(any('/dev/tty' in c for c in calls),
+                        f"Expected /dev/tty in open calls, got: {calls}")
 
 
 class TestIncrementalParsing(unittest.TestCase):

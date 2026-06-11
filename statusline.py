@@ -10,7 +10,6 @@ Requires Python 3.6+.
 """
 
 import json
-import shutil
 import sys
 import os
 import re
@@ -266,6 +265,85 @@ def truncate_to_width(s, width, ellipsis='…'):
     out.append(ellipsis)
     return ''.join(out)
 
+def _windows_columns():
+    """Detect terminal width on Windows (statusline is invoked via pipe).
+
+    Tries in order — only methods that return *live* width that updates
+    on terminal resize:
+
+    1. /dev/tty + TIOCGWINSZ: works in Git Bash / MSYS2, survives pipe
+       redirection, and reflects the current window size.
+    2. GetConsoleScreenBufferInfo via ctypes: reads srWindow from the
+       console attached to stdout/stderr — live value, updates on resize.
+    3. Returns 0 (unknown) if neither source is available.  The caller
+       treats 0 as "skip truncation entirely", which is safer than
+       truncating to a stale/guessed width.
+
+    Methods deliberately NOT used:
+    - shutil.get_terminal_size(): returns default 80 when stdout is a
+      pipe — the root cause of the "truncated too short" bug.
+    - COLUMNS env var: set once at shell startup, never updated on
+      resize — unreliable for live width.
+    """
+    # 1. /dev/tty: works in Git Bash / MSYS2 even when statusline is piped
+    try:
+        with open('/dev/tty', 'rb') as tty:
+            import fcntl
+            import termios
+            buf = fcntl.ioctl(tty.fileno(), termios.TIOCGWINSZ, b'\x00' * 8)
+            cols = struct.unpack('HHHH', buf)[1]
+            if cols > 0:
+                return cols
+    except Exception:
+        pass
+
+    # 2. Windows Console API: GetConsoleScreenBufferInfo
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+
+        class COORD(ctypes.Structure):
+            _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+        class SMALL_RECT(ctypes.Structure):
+            _fields_ = [("Left", ctypes.c_short), ("Top", ctypes.c_short),
+                        ("Right", ctypes.c_short), ("Bottom", ctypes.c_short)]
+
+        class CONSOLE_SCREEN_BUFFER_INFO(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", COORD),
+                ("dwCursorPosition", COORD),
+                ("wAttributes", ctypes.c_ushort),
+                ("srWindow", SMALL_RECT),
+                ("dwMaximumWindowSize", COORD),
+            ]
+
+        kernel32.GetConsoleScreenBufferInfo.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(CONSOLE_SCREEN_BUFFER_INFO),
+        ]
+        kernel32.GetConsoleScreenBufferInfo.restype = wintypes.BOOL
+
+        INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+
+        # Try stdout first, then stderr (in case one is redirected)
+        for handle_id in (-11, -12):  # STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+            h = kernel32.GetStdHandle(handle_id)
+            if not h or h == INVALID_HANDLE_VALUE:
+                continue
+            csbi = CONSOLE_SCREEN_BUFFER_INFO()
+            if kernel32.GetConsoleScreenBufferInfo(h, ctypes.byref(csbi)):
+                cols = csbi.srWindow.Right - csbi.srWindow.Left + 1
+                if cols > 0:
+                    return cols
+    except Exception:
+        pass
+
+    # 3. No reliable live-width source — return 0 (skip truncation)
+    return 0
+
 _TTY_COLUMNS_CACHE = (0, 0.0)  # (cols, mtime) — refreshed every 1s
 
 def _tty_columns():
@@ -276,8 +354,9 @@ def _tty_columns():
     cannot see the real TTY — /dev/tty refers to the controlling terminal
     regardless of redirections).
 
-    On Windows: falls back to shutil.get_terminal_size() since /dev/tty
-    and fcntl/termios are unavailable.
+    On Windows: tries /dev/tty (Git Bash/MSYS2) then the Windows Console
+    API via ctypes.  Returns 0 when no live width source is available,
+    which causes the caller to skip truncation entirely.
 
     Result is cached for ~1s because this runs every 300ms and the
     underlying call is a syscall we don't need to repeat.
@@ -301,10 +380,7 @@ def _tty_columns():
         except Exception:
             cols = 0
     else:
-        try:
-            cols = shutil.get_terminal_size().columns
-        except Exception:
-            cols = 0
+        cols = _windows_columns()
 
     if cols > 0:
         _TTY_COLUMNS_CACHE = (cols, time.time())
