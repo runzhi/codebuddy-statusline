@@ -18,11 +18,19 @@ fi
 
 # Resolve python command — must verify it actually runs
 # (Windows Store 'python3' stub exists but exits with code 49 without running)
+# Also enforce Python 3.6+ (required by statusline.py).
+# Prints two lines on success: <command> and <major.minor version>
 _resolve_python() {
     for cmd in python3 python; do
         if command -v "$cmd" &>/dev/null; then
-            if "$cmd" -c "import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)" 2>/dev/null; then
+            local ver
+            ver=$("$cmd" -c "import sys; print(sys.version_info[0], sys.version_info[1])" 2>/dev/null) || continue
+            local major=${ver%% *}
+            local minor=${ver##* }
+            # Require >= 3.6 (Python 4+ is fine)
+            if [ "${major:-0}" -ge 4 ] 2>/dev/null || { [ "$major" = 3 ] && [ "${minor:-0}" -ge 6 ]; }; then
                 echo "$cmd"
+                echo "$major.$minor"
                 return 0
             fi
         fi
@@ -30,9 +38,13 @@ _resolve_python() {
     return 1
 }
 
-PYTHON=$(_resolve_python)
-if [ -z "$PYTHON" ]; then
-    echo -e "${RED}Error: No working Python 3 found. Please install Python 3 first.${NC}"
+if _py_out=$(_resolve_python); then
+    PYTHON=$(printf '%s' "$_py_out" | sed -n '1p')
+    PYTHON_VERSION=$(printf '%s' "$_py_out" | sed -n '2p')
+    unset _py_out
+else
+    echo -e "${RED}Error: Python 3.6+ is required but was not found.${NC}" >&2
+    echo -e "${RED}Please install Python 3.6 or newer (https://www.python.org/downloads/).${NC}" >&2
     exit 1
 fi
 
@@ -48,7 +60,7 @@ echo ""
 
 # 1. Check dependencies
 echo -e "${YELLOW}[1/4]${NC} Checking dependencies..."
-echo -e "  python ($PYTHON): ${GREEN}OK${NC}"
+echo -e "  python ($PYTHON $PYTHON_VERSION): ${GREEN}OK${NC}"
 
 # 2. Clone / update plugin files
 echo ""
@@ -105,38 +117,48 @@ if [ ! -f "$SETTINGS_FILE" ]; then
 SETTINGS
     echo -e "  ${GREEN}Created settings.json with statusLine config${NC}"
 else
-    # Check if statusLine already configured
-    if $PYTHON -c "
-import json, sys
-with open(r'$SETTINGS_PATH') as f:
-    s = json.load(f)
+    # Check if statusLine already configured — use a temp helper to avoid
+    # interpolating shell variables into Python -c snippets (injection risk).
+    _SETTINGS_HELPER=$(mktemp -t codebuddy-statusline.XXXXXX)
+    trap 'rm -f "$_SETTINGS_HELPER"' EXIT
+    cat > "$_SETTINGS_HELPER" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+status_cmd = sys.argv[2]
+is_new = not os.path.exists(path)
+s = {}
+if not is_new:
+    with open(path) as f:
+        s = json.load(f)
 sl = s.get('statusLine', {})
-cmd = sl.get('command', '')
-if 'statusline' in cmd or 'cost-monitor' in cmd:
-    sys.exit(0)  # already configured
-sys.exit(1)
-" 2>/dev/null; then
-        echo -e "  ${GREEN}statusLine already configured, skipping${NC}"
+existing = sl.get('command', '')
+if 'statusline' in existing or 'cost-monitor' in existing:
+    print('configured')
+else:
+    s['statusLine'] = {
+        'type': 'command',
+        'command': status_cmd,
+        'padding': 0,
+    }
+    parent = os.path.dirname(path)
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
+    with open(path, 'w') as f:
+        json.dump(s, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+    print('created' if is_new else 'added')
+PY
+
+    if _status=$("$PYTHON" "$_SETTINGS_HELPER" "$SETTINGS_PATH" "$STATUSLINE_CMD" 2>/dev/null); then
+        case "$_status" in
+            configured) echo -e "  ${GREEN}statusLine already configured, skipping${NC}" ;;
+            created)    echo -e "  ${GREEN}Created settings.json with statusLine config${NC}" ;;
+            added)      echo -e "  ${GREEN}Added statusLine config to existing settings.json${NC}" ;;
+            *)          echo -e "  ${YELLOW}Unexpected helper output: '$_status'${NC}" ;;
+        esac
     else
-        # Use python to safely merge statusLine into existing settings
-        $PYTHON -c "
-import json
-
-path = r'$SETTINGS_PATH'
-with open(path) as f:
-    settings = json.load(f)
-
-settings['statusLine'] = {
-    'type': 'command',
-    'command': r'$STATUSLINE_CMD',
-    'padding': 0
-}
-
-with open(path, 'w') as f:
-    json.dump(settings, f, indent=2, ensure_ascii=False)
-    f.write('\n')
-"
-        echo -e "  ${GREEN}Added statusLine config to existing settings.json${NC}"
+        echo -e "  ${RED}Failed to update settings.json${NC}" >&2
+        exit 1
     fi
 fi
 

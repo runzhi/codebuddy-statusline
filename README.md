@@ -2,6 +2,11 @@
 
 CodeBuddy Code 的实时状态栏工具，类似于 Claude Hud，在状态栏实时显示当前会话的 Context 进度条、Token 用量、工具调用、费用等信息。
 
+## 环境要求
+
+- **Python 3.6+**（脚本使用 `subprocess.run`、`f-string` 等特性，需要 3.6+；`sys.stdout.reconfigure` 在 3.6 上会被 `hasattr` 保护跳过，无副作用）
+- macOS / Linux / Git Bash / Windows PowerShell 均可
+
 ## 安装
 
 ### Git Clone 安装

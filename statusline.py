@@ -5,6 +5,8 @@ Displays real-time cost, token usage, context progress, tools usage, and request
 
 Uses incremental parsing for all metrics from main + sub-agent transcripts.
 In/Out/Cache/Credits include sub-agent data for a complete picture.
+
+Requires Python 3.6+.
 """
 
 import json
@@ -115,8 +117,9 @@ def get_git_info(cwd):
     try:
         result = subprocess.run(
             ["git", "-C", cwd, "status", "--porcelain=v1", "--branch"],
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
             timeout=0.5,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):

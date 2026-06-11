@@ -1357,8 +1357,9 @@ class TestMainNullSafety(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, os.path.join(os.path.dirname(__file__), 'statusline.py')],
             input=json.dumps(input_data),
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
             timeout=5,
         )
         return result
