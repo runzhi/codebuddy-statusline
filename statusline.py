@@ -8,11 +8,14 @@ In/Out/Cache/Credits include sub-agent data for a complete picture.
 """
 
 import json
+import shutil
 import sys
 import os
 import re
+import struct
 import subprocess
 import time
+import unicodedata
 
 # Fix Windows GBK encoding: stdout defaults to GBK on Chinese Windows,
 # which cannot encode Unicode chars like ✓, █, ▕, × used in the output.
@@ -187,6 +190,150 @@ def make_progress_bar(pct, width=10):
         color = RED
 
     return bar, color
+
+# ANSI escape sequence regex:
+# - CSI sequences: ESC [ ... letter  (covers SGR, cursor, scroll, etc.)
+# - OSC sequences: ESC ] ... BEL/ST  (window title, etc.)
+# CSI uses [0-9;?]* to also match private params like ?25l, ?2004h.
+# OSC matches up to BEL (\007) or ST (ESC \).
+_ANSI_RE = re.compile(r'\033\[[0-9;?]*[A-Za-z]|\033\][^\007]*\007|\033\][^\033]*\033\\')
+
+def _char_width(ch):
+    """Return the terminal display width of a single character."""
+    eaw = unicodedata.east_asian_width(ch)
+    return 2 if eaw in ('W', 'F') else 1
+
+def _visible_len(s):
+    """Return the terminal display width of s, excluding ANSI escapes.
+
+    CJK and other East-Asian wide characters (width category W or F)
+    count as 2 columns, matching how most terminals render them.
+    """
+    return sum(_char_width(ch) for ch in _ANSI_RE.sub('', s))
+
+def truncate_to_width(s, width, ellipsis='…'):
+    """Truncate s to at most `width` visible terminal columns, ANSI-safe.
+
+    Preserves ANSI escape sequences intact (never cuts them in half).
+    Re-closes any unterminated SGR ("color") sequence before the
+    ellipsis so the truncation does not leak color into the next line.
+
+    CJK / wide characters count as 2 columns (matches terminal rendering).
+
+    If width is 0, returns s unchanged (no truncation) — used when
+    the terminal width cannot be determined.
+    """
+    if width == 0:
+        return s
+    if width < 0:
+        return ""
+    if _visible_len(s) <= width:
+        return s
+    ellipsis_w = _visible_len(ellipsis)
+    budget = width - ellipsis_w
+    if budget <= 0:
+        return ellipsis[:width]
+    out = []
+    visible = 0
+    sgr_open = False  # tracked to re-close before the ellipsis
+    i = 0
+    while i < len(s) and visible < budget:
+        m = _ANSI_RE.match(s, i)
+        if m:
+            seq = m.group(0)
+            out.append(seq)
+            # SGR codes end with 'm'; a bare reset clears any open style.
+            if seq.endswith('m') and seq != '\033[0m':
+                sgr_open = True
+            elif seq == '\033[0m':
+                sgr_open = False
+            i = m.end()
+        else:
+            ch = s[i]
+            cw = _char_width(ch)
+            # If adding this wide char would exceed the budget, stop
+            # before it rather than breaking mid-character.
+            if visible + cw > budget:
+                break
+            out.append(ch)
+            i += 1
+            visible += cw
+    if sgr_open:
+        out.append('\033[0m')
+    out.append(ellipsis)
+    return ''.join(out)
+
+_TTY_COLUMNS_CACHE = (0, 0.0)  # (cols, mtime) — refreshed every 1s
+
+def _tty_columns():
+    """Read live terminal width.
+
+    On Unix: uses /dev/tty + TIOCGWINSZ, which survives pipe invocation
+    (statusline is invoked through a pipe, so shutil.get_terminal_size()
+    cannot see the real TTY — /dev/tty refers to the controlling terminal
+    regardless of redirections).
+
+    On Windows: falls back to shutil.get_terminal_size() since /dev/tty
+    and fcntl/termios are unavailable.
+
+    Result is cached for ~1s because this runs every 300ms and the
+    underlying call is a syscall we don't need to repeat.
+
+    Returns 0 when no width source is available (no TTY, e.g. CI sandbox).
+    """
+    global _TTY_COLUMNS_CACHE
+    cached, last = _TTY_COLUMNS_CACHE
+    if cached and (time.time() - last) < 1.0:
+        return cached
+
+    cols = 0
+    if sys.platform != 'win32':
+        try:
+            import fcntl
+            import termios
+            with open('/dev/tty', 'rb') as tty:
+                # TIOCGWINSZ: arg is a struct winsize (4 unsigned shorts)
+                buf = fcntl.ioctl(tty.fileno(), termios.TIOCGWINSZ, b'\x00' * 8)
+                cols = struct.unpack('HHHH', buf)[1]
+        except Exception:
+            cols = 0
+    else:
+        try:
+            cols = shutil.get_terminal_size().columns
+        except Exception:
+            cols = 0
+
+    if cols > 0:
+        _TTY_COLUMNS_CACHE = (cols, time.time())
+        return cols
+
+    # Could not read real TTY — cache the failure briefly so we don't
+    # hammer the source, but return 0 so the caller knows it's unknown.
+    _TTY_COLUMNS_CACHE = (0, time.time())
+    return 0
+
+def get_statusline_width():
+    """Return terminal width from /dev/tty via TIOCGWINSZ.
+
+    Returns 0 when /dev/tty is unavailable, signalling the caller to skip
+    truncation entirely.
+    """
+    return _tty_columns()
+
+def get_statusline_width_from_input(input_data):
+    """Resolve statusline width from CodeBuddy's input JSON.
+
+    The host *may* report the live terminal width in `terminal_width` (int).
+    When the field is missing or non-positive we fall back to TIOCGWINSZ on
+    /dev/tty. Returns 0 when no width source is available, signalling the
+    caller to skip truncation entirely.
+    """
+    tw = None
+    if isinstance(input_data, dict):
+        tw = input_data.get('terminal_width')
+    if isinstance(tw, int) and tw > 0:
+        return tw
+    return get_statusline_width()
 
 RECENT_CALLS_MAX = 3
 RECENT_CALLS_SUMMARY_LEN = 60
@@ -941,6 +1088,19 @@ def main():
 
     if recent_parts:
         output += f"\n{DIM}Recent:{NC} {' | '.join(recent_parts)}"
+
+    # Truncate each line to terminal width so the renderer never wraps
+    # a long line and visually squeezes the row below out of view.
+    # We leave a small slack so the rightmost column has breathing room.
+    # Width comes from the host's reported terminal_width (stdin JSON)
+    # with /dev/tty TIOCGWINSZ as fallback.
+    # If width is 0 (no TTY, no fallback), skip truncation entirely.
+    width = get_statusline_width_from_input(input_data)
+    if width > 0:
+        output = "\n".join(
+            truncate_to_width(line, max(20, width - 2))
+            for line in output.split("\n")
+        )
 
     print(output)
 
