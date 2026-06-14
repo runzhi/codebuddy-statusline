@@ -27,9 +27,15 @@ if (Test-Path $SettingsFile) {
     if (-not $PythonCmd) {
         Write-Host "  No working Python found, cannot clean settings.json automatically" -ForegroundColor Red
     } else {
-        & $PythonCmd -c @"
-import json
-path = r'$SettingsFile'
+        # Use a temp helper script + sys.argv to avoid embedding the path
+        # into a Python string literal (injection risk).
+        $helperPath = [System.IO.Path]::Combine(
+            [System.IO.Path]::GetTempPath(),
+            "codebuddy-statusline-uninst-$PID.py"
+        )
+        @'
+import json, sys
+path = sys.argv[1]
 with open(path) as f:
     settings = json.load(f)
 if 'statusLine' in settings:
@@ -39,12 +45,24 @@ if 'statusLine' in settings:
         with open(path, 'w') as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)
             f.write('\n')
-        print('  Removed statusLine config')
+        print('removed')
     else:
-        print('  statusLine exists but not ours, skipping')
+        print('foreign')
 else:
-    print('  No statusLine config found, skipping')
-"@
+    print('absent')
+'@ | Set-Content -Path $helperPath -Encoding UTF8
+
+        try {
+            $status = & $PythonCmd $helperPath $SettingsFile 2>$null
+            switch ($status) {
+                'removed' { Write-Host "  Removed statusLine config" -ForegroundColor Green }
+                'foreign' { Write-Host "  statusLine exists but not ours, skipping" -ForegroundColor Yellow }
+                'absent'  { Write-Host "  No statusLine config found, skipping" }
+                default   { Write-Host "  Unexpected helper output: '$status'" -ForegroundColor Yellow }
+            }
+        } finally {
+            Remove-Item $helperPath -ErrorAction SilentlyContinue
+        }
     }
 }
 

@@ -105,6 +105,11 @@ _GIT_BRANCH_LINE_RE = re.compile(
     r')$'
 )
 
+# Git info is fetched synchronously on each call (no cache).
+# CodeBuddy's statusline invocation cycle is irregular (seconds to minutes),
+# so caching would risk stale data (branch switches, commits, pulls) without
+# meaningfully reducing fork overhead. A single `git status` subprocess takes
+# only a few ms, well within the tolerance of an irregular render cycle.
 def get_git_info(cwd):
     """Return git info for *cwd* or None if unavailable.
 
@@ -365,7 +370,11 @@ def _tty_columns():
     """
     global _TTY_COLUMNS_CACHE
     cached, last = _TTY_COLUMNS_CACHE
-    if cached and (time.time() - last) < 1.0:
+    # Cache both positive results and zero (no-TTY) results for ~1s.
+    # The previous `if cached and ...` skipped the cache when cached==0
+    # (no TTY), causing a re-read every cycle and a fresh timestamp write
+    # that broke the test asserting the tuple is unchanged.
+    if (time.time() - last) < 1.0:
         return cached
 
     cols = 0
@@ -416,6 +425,9 @@ def get_statusline_width_from_input(input_data):
 
 RECENT_CALLS_MAX = 3
 RECENT_CALLS_SUMMARY_LEN = 60
+# Stats fields that hold the "last value" rather than a cumulative total;
+# during incremental merges they are overwritten (not summed).
+_LAST_KEYS = ("last_input", "last_output", "last_cache_read", "last_credits", "last_cost")
 
 def new_stats():
     return {
@@ -494,7 +506,6 @@ def add_line_to_stats(stats, data):
                 except (json.JSONDecodeError, TypeError):
                     args = {}
                 summary = _extract_call_summary(name, args)
-            stats["recent_calls"] = stats.get("recent_calls", [])
             stats["recent_calls"].append({"name": name, "summary": summary})
             stats["recent_calls"] = stats["recent_calls"][-RECENT_CALLS_MAX:]
 
@@ -628,7 +639,6 @@ def maybe_auto_update():
         return
 
     try:
-        import subprocess
         kwargs = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -826,7 +836,6 @@ def parse_transcript_incremental(transcript_path, session_id):
                 # Merge delta into existing stats
                 # last_* fields are "last value" not cumulative;
                 # only overwrite when delta has a non-zero value (i.e. a new API response)
-                _LAST_KEYS = ("last_input", "last_output", "last_cache_read", "last_credits", "last_cost")
                 for key in delta:
                     if key == "running_agents":
                         continue
@@ -907,7 +916,6 @@ def parse_transcript_incremental(transcript_path, session_id):
                     # Merge sub-agent delta into main stats
                     # Sub-agents contribute tokens/credits/tools but NOT running_agents/compact_count/periodic_count
                     # last_* fields: only overwrite when sub_delta has a non-zero value
-                    _LAST_KEYS = ("last_input", "last_output", "last_cache_read", "last_credits", "last_cost")
                     for key in sub_delta:
                         if key in ("running_agents", "compact_count", "periodic_count"):
                             continue
@@ -1002,9 +1010,10 @@ def format_recent_calls(recent_calls):
         summary = call.get('summary', '')
         short = TOOL_SHORT.get(name, name)
         if summary and summary != name:
-            # Truncate and add ellipsis if needed
-            if len(summary) > RECENT_CALLS_SUMMARY_LEN:
-                summary = summary[:RECENT_CALLS_SUMMARY_LEN - 1] + "…"
+            # Truncate to RECENT_CALLS_SUMMARY_LEN visible columns (CJK-safe).
+            # Previously used len() which miscounts wide characters and can
+            # split ANSI escape sequences.
+            summary = truncate_to_width(summary, RECENT_CALLS_SUMMARY_LEN)
             parts.append(f"{CYAN}{short}{NC} {DIM}{summary}{NC}")
         else:
             parts.append(f"{CYAN}{short}{NC}")

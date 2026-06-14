@@ -44,9 +44,14 @@ if [ -f "$SETTINGS_FILE" ]; then
     if [ -z "$PYTHON" ]; then
         echo -e "  ${RED}No working Python found, cannot clean settings.json automatically${NC}"
     else
-        $PYTHON -c "
-import json
-path = r'$SETTINGS_PATH'
+        # Use a temp helper script + sys.argv to avoid interpolating shell
+        # variables into Python string literals (injection risk if the path
+        # contains quotes/backslashes).
+        _UNINSTALL_HELPER=$(mktemp -t codebuddy-statusline-uninst.XXXXXX)
+        trap 'rm -f "$_UNINSTALL_HELPER"' EXIT
+        cat > "$_UNINSTALL_HELPER" <<'PY'
+import json, sys
+path = sys.argv[1]
 with open(path) as f:
     settings = json.load(f)
 if 'statusLine' in settings:
@@ -56,12 +61,19 @@ if 'statusLine' in settings:
         with open(path, 'w') as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)
             f.write('\n')
-        print('  Removed statusLine config')
+        print('removed')
     else:
-        print('  statusLine exists but not ours, skipping')
+        print('foreign')
 else:
-    print('  No statusLine config found, skipping')
-"
+    print('absent')
+PY
+
+        case "$("$PYTHON" "$_UNINSTALL_HELPER" "$SETTINGS_PATH" 2>/dev/null)" in
+            removed)  echo -e "  ${GREEN}Removed statusLine config${NC}" ;;
+            foreign)  echo -e "  ${YELLOW}statusLine exists but not ours, skipping${NC}" ;;
+            absent)   echo -e "  No statusLine config found, skipping" ;;
+            *)        echo -e "  ${YELLOW}Unexpected helper output${NC}" ;;
+        esac
     fi
 fi
 

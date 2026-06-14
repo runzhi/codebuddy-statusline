@@ -32,7 +32,7 @@ def find_latest_transcript():
             tp = data.get('transcript_path', '')
             if tp and os.path.exists(tp):
                 return tp
-        except:
+        except Exception:
             pass
 
     # Find latest transcript in project dirs
