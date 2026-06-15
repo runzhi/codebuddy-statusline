@@ -641,7 +641,7 @@ def maybe_auto_update():
     try:
         kwargs = {}
         if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            kwargs["creationflags"] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
         subprocess.Popen(
             ["git", "-C", PLUGIN_DIR, "pull", "--ff-only", "--quiet"],
             stdin=subprocess.DEVNULL,
