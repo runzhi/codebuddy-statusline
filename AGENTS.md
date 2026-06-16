@@ -42,7 +42,7 @@ CodeBuddy 的 `StatusLineManager` 事件驱动 + 300ms 防抖。事件源：`ses
 ## 数据来源
 
 - `context_window.*`：进度条，直接渲染
-- `transcript_path` JSONL：`function_call`（工具统计）、`providerData.usage`/`rawUsage`（Token/Credits，Cache 来自 `inputTokensDetails[].cached_tokens` 或 `prompt_cache_hit_tokens`）、`summary`（`pre-compact`→Auto-Compact，`periodic`→Periodic）
+- `transcript_path` JSONL：`function_call`（工具统计）、`providerData.usage`/`rawUsage`（Token/Credits，Cache 来自 `inputTokensDetails[].cached_tokens` 或 `prompt_cache_hit_tokens`）、`message`+`isCompactInternal`+`isSummary`（Compact）、`summary`+`periodic`（Periodic）
 - `subagents/*.jsonl`：合并 token/credit/tool（`running_agents`/`compact_count`/`periodic_count` 仅主 transcript）
 
 ## 性能

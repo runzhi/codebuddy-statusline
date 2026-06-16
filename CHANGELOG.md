@@ -4,6 +4,12 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复 (Fixed)
+
+- **Compact 检测适配新格式**：CodeBuddy 的 compact 事件格式变更，不再写入 `type: "summary", providerData.source: "pre-compact"`，改为 `type: "message", providerData.isCompactInternal=true + isSummary=true`。每次 compact 产生两条 message（摘要行 + "Please continue" 行），仅摘要行含 `isSummary=true`，避免重复计数。旧格式检测逻辑已移除。`Auto-Compact` 重命名为 `Compact`，因新格式下手动 `/compact` 同样被检测。CACHE_VERSION 升至 8。
+
 ## [1.6.0] - 2026-06-02
 
 ### 新增 (Added)

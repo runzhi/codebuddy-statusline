@@ -29,7 +29,7 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 _PLUGIN_DATA = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.expanduser("~/.codebuddy/plugins/data/statusline")
 CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
-CACHE_VERSION = 7
+CACHE_VERSION = 8
 
 # Plugin mode: CODEBUDDY_PLUGIN_ROOT is set when installed via marketplace
 # Git-clone mode: fallback to script's own directory
@@ -513,13 +513,20 @@ def add_line_to_stats(stats, data):
         stats["running_agents"] -= 1
 
     # Count context compaction events
+    # type=message, providerData.isCompactInternal=true + isSummary=true
+    # Each compact produces 2 message entries (summary + "Please continue");
+    # only the summary one has isSummary=true, to avoid double-counting.
+    if entry_type == 'message':
+        pd = data.get('providerData', {})
+        if isinstance(pd, dict) and pd.get('isCompactInternal') and pd.get('isSummary'):
+            stats["compact_count"] += 1
+
+    # Count periodic summaries
     elif entry_type == 'summary':
         pd = data.get('providerData', {})
         if isinstance(pd, dict):
             source = pd.get('source')
-            if source == 'pre-compact':
-                stats["compact_count"] += 1
-            elif source not in ('initial-user-message', None):
+            if source not in ('initial-user-message', None):
                 stats["periodic_count"] += 1
 
     # Token usage — In/Out/Cache/Think/Credits from providerData
@@ -1089,7 +1096,7 @@ def main():
             if ctx_str:
                 ctx_part += f" {DIM}{ctx_str}{NC}"
             if stats.get('compact_count', 0) > 0:
-                ctx_part += f" {YELLOW}Auto-Compact×{stats['compact_count']}{NC}"
+                ctx_part += f" {YELLOW}Compact×{stats['compact_count']}{NC}"
             if stats.get('periodic_count', 0) > 0:
                 ctx_part += f" {DIM}Periodic×{stats['periodic_count']}{NC}"
             parts.append(ctx_part)

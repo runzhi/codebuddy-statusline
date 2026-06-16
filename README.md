@@ -53,7 +53,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 | `GLM-5.1` | 当前模型名称 |
 | `▕████▍     ▏44%` | Context 进度条（绿 < 50%，黄 < 80%，红 >= 80%） |
 | `56.7K/128.0K` | 当前 Context 用量 / 窗口上限 |
-| `Auto-Compact×2` | Context 自动压缩次数（黄色） |
+| `Compact×2` | Context 压缩次数，含自动和手动（黄色） |
 | `Periodic×3` | Context 阶段摘要次数（灰色） |
 | `In:2.4M` | 输入 Token 数（自动缩写 K/M） |
 | `Out:10.7K` | 输出 Token 数 |
@@ -65,14 +65,13 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 | `Time:45s` | 会话耗时 |
 | `+156/-23` | 代码增删行数 |
 
-**Auto-Compact vs Periodic 区别：**
+**Compact vs Periodic 区别：**
 
-| | Auto-Compact | Periodic |
+| | Compact | Periodic |
 |---|---|---|
-| **本质** | 自动压缩——丢掉原文，换成摘要 | 打标签——给对话分段加标题 |
-| **触发时机** | Context 快满时被迫压缩 | 对话进行一段后主动阶段性总结 |
+| **本质** | 压缩——丢掉原文，换成摘要 | 打标签——给对话分段加标题 |
+| **触发时机** | Context 快满时自动压缩，或手动 `/compact` | 对话进行一段后主动阶段性总结 |
 | **Context 影响** | 用量明显下降 | 用量不变或微增 |
-| **可否手动触发** | 可以，`/compact` 命令 | 不可以 |
 
 ### 第二行：工具调用 & Agent 状态
 

@@ -252,12 +252,44 @@ class TestAddLineToStats(unittest.TestCase):
         self.assertEqual(stats["request_count"], 1)
 
     def test_compact_count(self):
+        """type=message with isCompactInternal=true + isSummary=true."""
         stats = new_stats()
         add_line_to_stats(stats, {
-            'type': 'summary',
-            'providerData': {'source': 'pre-compact'},
+            'type': 'message',
+            'role': 'user',
+            'providerData': {'isCompactInternal': True, 'isSummary': True, 'agent': 'cli'},
         })
         self.assertEqual(stats["compact_count"], 1)
+
+    def test_compact_count_no_isSummary(self):
+        """Without isSummary (the "Please continue" message) should NOT count."""
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'message',
+            'role': 'user',
+            'providerData': {'isCompactInternal': True, 'agent': 'cli'},
+        })
+        self.assertEqual(stats["compact_count"], 0)
+
+    def test_compact_count_isCompactInternal_false(self):
+        """isCompactInternal=false should NOT count as compact."""
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'message',
+            'role': 'user',
+            'providerData': {'isCompactInternal': False, 'isSummary': True, 'agent': 'cli'},
+        })
+        self.assertEqual(stats["compact_count"], 0)
+
+    def test_compact_count_no_isCompactInternal(self):
+        """Message without isCompactInternal should NOT count as compact."""
+        stats = new_stats()
+        add_line_to_stats(stats, {
+            'type': 'message',
+            'role': 'user',
+            'providerData': {'agent': 'cli'},
+        })
+        self.assertEqual(stats["compact_count"], 0)
 
     def test_compact_count_counts_periodic_summary(self):
         stats = new_stats()
@@ -1463,11 +1495,22 @@ class TestMainNullSafety(unittest.TestCase):
                 'type': 'summary',
                 'providerData': {'source': 'initial-user-message'},
             }) + '\n')
-            # periodic and pre-compact summaries counted separately
-            for src in ['periodic', 'pre-compact', 'pre-compact', 'pre-compact']:
+            # periodic summary
+            f.write(json.dumps({
+                'type': 'summary',
+                'providerData': {'source': 'periodic'},
+            }) + '\n')
+            # 3 compact events (each = summary msg + "Please continue" msg)
+            for _ in range(3):
                 f.write(json.dumps({
-                    'type': 'summary',
-                    'providerData': {'source': src},
+                    'type': 'message',
+                    'role': 'user',
+                    'providerData': {'isCompactInternal': True, 'isSummary': True},
+                }) + '\n')
+                f.write(json.dumps({
+                    'type': 'message',
+                    'role': 'user',
+                    'providerData': {'isCompactInternal': True},
                 }) + '\n')
             # some tool calls
             f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
