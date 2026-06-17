@@ -9,6 +9,7 @@
 ### 修复 (Fixed)
 
 - **Compact 检测适配新格式**：CodeBuddy 的 compact 事件格式变更，不再写入 `type: "summary", providerData.source: "pre-compact"`，改为 `type: "message", providerData.isCompactInternal=true + isSummary=true`。每次 compact 产生两条 message（摘要行 + "Please continue" 行），仅摘要行含 `isSummary=true`，避免重复计数。旧格式检测逻辑已移除。`Auto-Compact` 重命名为 `Compact`，因新格式下手动 `/compact` 同样被检测。CACHE_VERSION 升至 8。
+- **Compact/Periodic 计数在 compact 后首次调用时消失**：compact 后 `used_percentage` 可能为 null（CodeBuddy 尚未重算 context_window），而 Compact×N 和 Periodic×M 被嵌套在进度条条件分支内导致不渲染。修复为将两者移至条件分支外，始终显示。
 
 ## [1.6.0] - 2026-06-02
 

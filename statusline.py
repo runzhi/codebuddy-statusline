@@ -1095,11 +1095,20 @@ def main():
             ctx_part = f"{bar_color}▕{bar}▏{NC}{DIM}{pct_display}%{NC}"
             if ctx_str:
                 ctx_part += f" {DIM}{ctx_str}{NC}"
-            if stats.get('compact_count', 0) > 0:
-                ctx_part += f" {YELLOW}Compact×{stats['compact_count']}{NC}"
-            if stats.get('periodic_count', 0) > 0:
-                ctx_part += f" {DIM}Periodic×{stats['periodic_count']}{NC}"
             parts.append(ctx_part)
+
+    # Compact/Periodic counts: always show when present, even if
+    # used_percentage is null (e.g. first call right after compact).
+    cp_parts = ""
+    if stats.get('compact_count', 0) > 0:
+        cp_parts += f" {YELLOW}Compact×{stats['compact_count']}{NC}"
+    if stats.get('periodic_count', 0) > 0:
+        cp_parts += f" {DIM}Periodic×{stats['periodic_count']}{NC}"
+    if cp_parts:
+        if parts:
+            parts[-1] += cp_parts
+        else:
+            parts.append(cp_parts.strip())
 
     if used_pct is None and ctx_size > 0:
         # No percentage data, but we still have max context size

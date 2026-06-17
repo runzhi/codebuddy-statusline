@@ -1535,6 +1535,43 @@ class TestMainNullSafety(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir)
 
+    def test_compact_periodic_shown_without_used_percentage(self):
+        """Compact×N and Periodic×M show even when used_percentage is null (post-compact first call)."""
+        tmpdir = tempfile.mkdtemp()
+        transcript = os.path.join(tmpdir, "no-pct-test.jsonl")
+        with open(transcript, 'w') as f:
+            f.write(json.dumps({
+                'type': 'summary',
+                'providerData': {'source': 'periodic'},
+            }) + '\n')
+            f.write(json.dumps({
+                'type': 'message',
+                'role': 'user',
+                'providerData': {'isCompactInternal': True, 'isSummary': True},
+            }) + '\n')
+            f.write(json.dumps({
+                'type': 'message',
+                'role': 'user',
+                'providerData': {'isCompactInternal': True},
+            }) + '\n')
+
+        try:
+            r = self._run_main({
+                "context_window": {
+                    "used_percentage": None,
+                    "context_window_size": 200000,
+                },
+                "session_id": "no-pct-test",
+                "transcript_path": transcript,
+            })
+            self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+            import re
+            plain = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
+            self.assertIn("Compact×1", plain)
+            self.assertIn("Periodic×1", plain)
+        finally:
+            shutil.rmtree(tmpdir)
+
     def test_lines_display(self):
         """End-to-end: +N/-M shows raw cumulative values from cost."""
         r = self._run_main({
