@@ -1097,6 +1097,10 @@ def main():
                 ctx_part += f" {DIM}{ctx_str}{NC}"
             parts.append(ctx_part)
 
+    if used_pct is None and ctx_size > 0:
+        # No percentage data, but we still have max context size
+        parts.append(f"{DIM}Max:{format_tokens(ctx_size)}{NC}")
+
     # Compact/Periodic counts: always show when present, even if
     # used_percentage is null (e.g. first call right after compact).
     cp_parts = ""
@@ -1104,16 +1108,8 @@ def main():
         cp_parts += f" {YELLOW}Compact×{stats['compact_count']}{NC}"
     if stats.get('periodic_count', 0) > 0:
         cp_parts += f" {DIM}Periodic×{stats['periodic_count']}{NC}"
-    if cp_parts:
-        if parts:
-            parts[-1] += cp_parts
-        else:
-            parts.append(cp_parts.strip())
-
-    if used_pct is None and ctx_size > 0:
-        # No percentage data, but we still have max context size
-        ctx_part = f"{DIM}Max:{format_tokens(ctx_size)}{NC}"
-        parts.append(ctx_part)
+    if cp_parts and parts:
+        parts[-1] += cp_parts
 
     # Token usage display.
     # In/Out come from transcript parsing (main + sub-agents),
