@@ -1079,13 +1079,16 @@ def main():
 
     if used_pct is not None:
         try:
-            # used_pct can be 0-100 (percentage) or 0-1 (ratio); normalize to 0-1
-            pct = min(used_pct / 100.0, 1.0) if used_pct > 1 else min(used_pct, 1.0)
+            # used_percentage is always 0-100 (host computes it as
+            # Math.round(ratio * 1e4) / 100). The old `used_pct > 1`
+            # heuristic misread sub-1% values (e.g. 0.81 meaning 0.81%)
+            # as a 0-1 ratio (81%).
+            pct = min(used_pct / 100.0, 1.0)
         except (TypeError, ValueError):
             used_pct = None
         else:
             bar, bar_color = make_progress_bar(pct, width=10)
-            pct_display = int(pct * 100)
+            pct_display = round(pct * 100)
             if ctx_size > 0 and current_tokens > 0:
                 ctx_str = f"{format_tokens(current_tokens)}/{format_tokens(ctx_size)}"
             elif ctx_size > 0:

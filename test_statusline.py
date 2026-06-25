@@ -1484,6 +1484,51 @@ class TestMainNullSafety(unittest.TestCase):
         self.assertIn("TestModel", plain)
         self.assertIn("In:1.5M", plain)
 
+    def test_low_used_percentage_not_inflated(self):
+        """used_percentage=0.81 (0-100 scale, meaning 0.81%) must render as ~1%, not 81%.
+
+        Host computes used_percentage = round(ratio * 1e4) / 100 (0-100 scale,
+        2 decimals). For 8121/1_000_000 = 0.81%, host sends 0.81. The old
+        heuristic (used_pct > 1 ? ratio : percentage) misread this as 81%.
+        """
+        r = self._run_main({
+            "context_window": {
+                "used_percentage": 0.81,
+                "context_window_size": 1_000_000,
+                "current_usage": {"input_tokens": 8121},
+            },
+            "session_id": "t-low-pct", "transcript_path": "",
+        })
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+        import re
+        plain = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
+        m = re.search(r'(\d+)%', plain)
+        self.assertIsNotNone(m, f"no %% in output: {plain!r}")
+        self.assertEqual(m.group(1), "1",
+                         f"0.81% should round to 1%, got {m.group(1)}%: {plain!r}")
+
+    def test_used_percentage_one_means_one_percent(self):
+        """used_percentage=1 on 0-100 scale means 1%, not 100%.
+
+        Boundary case that also broke under the old heuristic:
+        `used_pct > 1` is False when used_pct == 1.
+        """
+        r = self._run_main({
+            "context_window": {
+                "used_percentage": 1,
+                "context_window_size": 1_000_000,
+                "current_usage": {"input_tokens": 10000},
+            },
+            "session_id": "t-one-pct", "transcript_path": "",
+        })
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout}\nstderr={r.stderr}")
+        import re
+        plain = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout)
+        m = re.search(r'(\d+)%', plain)
+        self.assertIsNotNone(m, f"no %% in output: {plain!r}")
+        self.assertEqual(m.group(1), "1",
+                         f"1% should display as 1%, got {m.group(1)}%: {plain!r}")
+
     def test_compact_count_in_output(self):
         """End-to-end: Compact×N and Periodic×M appear separately in statusline output."""
         # Create a transcript with compact events
