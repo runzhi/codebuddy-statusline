@@ -16,7 +16,6 @@ CodeBuddy Code 的 statusline 插件。stdin 接收状态 JSON → 增量解析 
 | `install.sh`/`install.ps1` | 安装脚本（内外网双地址） |
 | `uninstall.sh`/`uninstall.ps1` | 卸载脚本 |
 | `commands/` | 斜杠命令定义 |
-| `scripts/sync-public.sh` | master → github/main 同步 |
 
 ## 调用机制
 
