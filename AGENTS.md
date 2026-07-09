@@ -10,9 +10,14 @@ CodeBuddy Code 的 statusline 插件。stdin 接收状态 JSON → 增量解析 
 
 | 文件 | 职责 |
 |------|------|
-| `statusline.py` | 主脚本（增量解析 + 子 Agent 聚合 + git 检测 + 自动更新） |
+| `statusline.py` | 入口（薄编排）：读 stdin → `parsing.parse_transcript_incremental` → `render.build_statusline` → 打印 → `stats.maybe_auto_update` |
+| `formatting.py` | 纯格式化与宽度/截断：`format_tokens/cost/duration`、`make_progress_bar`、`truncate_to_width`、`_tty_columns/_windows_columns`、`get_statusline_width(_from_input)`，以及颜色/费用常量 |
+| `gitinfo.py` | git 分支/状态检测：`get_git_info` / `format_git_info` |
+| `stats.py` | stats 结构与缓存持久化：`new_stats`/`load_cache`/`save_cache`/`cleanup_old_caches`/`maybe_auto_update` + `CACHE_VERSION`/`_LAST_KEYS`/`CACHE_DIR` |
+| `parsing.py` | transcript 增量解析：`parse_transcript_incremental`/`add_line_to_stats`/`_extract_call_summary`，共享 `_read_transcript_delta`/`_merge_delta`（主/sub 解析去重） |
+| `render.py` | 渲染：`format_tools`/`format_recent_calls`/`build_statusline`（三行装配） |
 | `cost-detail.py` | 按模型分组的详细报告 |
-| `test_statusline.py` | 单元测试（164 用例） |
+| `test_*.py` | 按模块拆分的单元测试（共 170 用例）：`test_formatting`/`test_gitinfo`/`test_stats`/`test_parsing`/`test_render` + `test_statusline`（入口集成冒烟） |
 | `install.sh`/`install.ps1` | 安装脚本（内外网双地址） |
 | `uninstall.sh`/`uninstall.ps1` | 卸载脚本 |
 | `commands/` | 斜杠命令定义 |
