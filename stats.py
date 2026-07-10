@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stats structure, cache persistence, and plugin auto-update.
+"""Stats structure, cache persistence, and git-clone auto-update.
 
 Holds the accumulated-stats schema (new_stats), the on-disk cache
 (load/save, versioned by CACHE_VERSION), periodic cache cleanup, and the
@@ -16,15 +16,13 @@ import time
 # Resolve the CodeBuddy config dir. The running process may set
 # CODEBUDDY_CONFIG_DIR (e.g. ~/.workbuddy); fall back to ~/.codebuddy.
 _CONFIG_DIR = os.environ.get('CODEBUDDY_CONFIG_DIR', '') or os.path.expanduser("~/.codebuddy")
-_PLUGIN_DATA = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.join(_CONFIG_DIR, "plugins/data/statusline")
+_PLUGIN_DATA = os.path.join(_CONFIG_DIR, "plugins/data/statusline")
 CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
 CACHE_VERSION = 8
 
-# Plugin mode: CODEBUDDY_PLUGIN_ROOT is set when installed via marketplace
-# Git-clone mode: fallback to script's own directory
-PLUGIN_DIR = os.environ.get('CODEBUDDY_PLUGIN_ROOT', '') or os.path.dirname(os.path.abspath(__file__))
-IS_PLUGIN_MODE = bool(os.environ.get('CODEBUDDY_PLUGIN_ROOT', ''))
+# PLUGIN_DIR is the directory this script lives in (the git-clone install dir).
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Auto-update (git-clone mode only): throttled via marker file
 UPDATE_MARKER = os.path.join(CACHE_DIR, ".last-update-check")
@@ -97,17 +95,12 @@ def save_cache(session_id, stats, main_offset, sub_offsets=None):
 
 
 def maybe_auto_update():
-    """Try to git-pull the plugin repo at most once per day (git-clone mode only).
-
-    Skipped entirely when installed via plugin marketplace (IS_PLUGIN_MODE),
-    since updates are managed by `codebuddy plugin update`.
+    """Try to git-pull the install repo at most once per day.
 
     Throttles via a marker file (mtime). The git pull runs in a fully detached
-    background process so it never blocks the statusline.
+    background process so it never blocks the statusline. No-op when the
+    install dir is not a git repo.
     """
-    if IS_PLUGIN_MODE:
-        return
-
     git_dir = os.path.join(PLUGIN_DIR, ".git")
     if not os.path.isdir(git_dir):
         return

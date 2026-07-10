@@ -13,7 +13,7 @@ import unittest.mock
 import stats
 from stats import (
     new_stats, load_cache, save_cache, cleanup_old_caches, maybe_auto_update,
-    CACHE_DIR, CACHE_VERSION, IS_PLUGIN_MODE,
+    CACHE_DIR, CACHE_VERSION,
 )
 
 class TestNewStats(unittest.TestCase):
@@ -110,27 +110,30 @@ class TestAutoUpdate(unittest.TestCase):
         self._orig_cache_dir = stats.CACHE_DIR
         self._orig_plugin_dir = stats.PLUGIN_DIR
         self._orig_marker = stats.UPDATE_MARKER
-        self._orig_is_plugin_mode = stats.IS_PLUGIN_MODE
         stats.CACHE_DIR = self.tmpdir
         stats.UPDATE_MARKER = os.path.join(self.tmpdir, ".last-update-check")
-        stats.IS_PLUGIN_MODE = False  # default: git-clone mode for tests
 
     def tearDown(self):
         import statusline
         stats.CACHE_DIR = self._orig_cache_dir
         stats.PLUGIN_DIR = self._orig_plugin_dir
         stats.UPDATE_MARKER = self._orig_marker
-        stats.IS_PLUGIN_MODE = self._orig_is_plugin_mode
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_skipped_in_plugin_mode(self):
-        """When IS_PLUGIN_MODE is True, maybe_auto_update is a no-op."""
+    def test_attempts_update_in_single_mode(self):
+        """In the single (git-clone) mode, maybe_auto_update runs git pull."""
         import statusline
         os.makedirs(os.path.join(self.tmpdir, ".git"), exist_ok=True)
         stats.PLUGIN_DIR = self.tmpdir
-        stats.IS_PLUGIN_MODE = True
-        maybe_auto_update()
-        self.assertFalse(os.path.exists(stats.UPDATE_MARKER))
+        with open(stats.UPDATE_MARKER, 'w') as f:
+            f.write(str(int(time.time()) - 2 * 86400))
+        old_mtime = time.time() - 2 * 86400
+        os.utime(stats.UPDATE_MARKER, (old_mtime, old_mtime))
+        with unittest.mock.patch("subprocess.Popen") as mock_popen:
+            maybe_auto_update()
+            mock_popen.assert_called_once()
+            args = mock_popen.call_args[0][0]
+            self.assertEqual(args, ["git", "-C", self.tmpdir, "pull", "--ff-only", "--quiet"])
 
     def test_no_op_when_not_a_git_repo(self):
         """When PLUGIN_DIR isn't a git repo, maybe_auto_update is a no-op."""
