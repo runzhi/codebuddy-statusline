@@ -6,6 +6,8 @@ import os
 import re
 import unittest
 
+import stats
+
 from render import (
     BLOCKS_LINE1,
     build_statusline,
@@ -159,10 +161,11 @@ class TestBuildStatuslineConfig(unittest.TestCase):
     def setUp(self):
         import tempfile
         self._tmp = tempfile.mkdtemp()
-        os.environ["CODEBUDDY_PLUGIN_DATA"] = self._tmp
+        self._orig_plugin_data = stats._PLUGIN_DATA
+        stats._PLUGIN_DATA = self._tmp
 
     def tearDown(self):
-        os.environ.pop("CODEBUDDY_PLUGIN_DATA", None)
+        stats._PLUGIN_DATA = self._orig_plugin_data
 
     def _write_config(self, layout):
         with open(os.path.join(self._tmp, "config.json"), "w") as f:

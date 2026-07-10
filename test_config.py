@@ -13,16 +13,18 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config as config_mod
+import stats
 
 
 class TestConfigHelper(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
-        os.environ["CODEBUDDY_PLUGIN_DATA"] = self._tmp
+        self._orig_plugin_data = stats._PLUGIN_DATA
+        stats._PLUGIN_DATA = self._tmp
         self._path = os.path.join(self._tmp, "config.json")
 
     def tearDown(self):
-        os.environ.pop("CODEBUDDY_PLUGIN_DATA", None)
+        stats._PLUGIN_DATA = self._orig_plugin_data
 
     def _read(self):
         with open(self._path, "r", encoding="utf-8") as f:

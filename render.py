@@ -26,6 +26,7 @@ from formatting import (
     truncate_to_width,
 )
 from gitinfo import format_git_info, get_git_info
+import stats
 
 # Tool display order and short names
 TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "WebFetch", "WebSearch"]
@@ -41,7 +42,7 @@ RECENT_CALLS_SUMMARY_LEN = 60
 # ---------------------------------------------------------------------------
 # Configurable layout
 #
-# The three-line statusline is assembled from discrete "blocks". A plugin-owned
+# The three-line statusline is assembled from discrete "blocks". A statusline-owned
 # config file (<config-dir>/plugins/data/statusline/config.json, where
 # config-dir = CODEBUDDY_CONFIG_DIR or ~/.codebuddy) decides which blocks are
 # shown, their order on line 1, and whether the Tools/Recent lines are enabled.
@@ -50,12 +51,8 @@ RECENT_CALLS_SUMMARY_LEN = 60
 # ---------------------------------------------------------------------------
 
 def _config_path():
-    """Location of the layout config, reusing the plugin data dir."""
-    base = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.join(
-        os.environ.get('CODEBUDDY_CONFIG_DIR', '') or os.path.expanduser("~/.codebuddy"),
-        "plugins/data/statusline",
-    )
-    return os.path.join(base, "config.json")
+    """Location of the layout config, reusing the data dir (stats._PLUGIN_DATA)."""
+    return os.path.join(stats._PLUGIN_DATA, "config.json")
 
 
 def load_layout_config():
