@@ -191,8 +191,7 @@ tokens · requests · cost · credits · time · lines
 ```
 
 > 命令由 `install.sh` / `install.ps1` 自动链接到 `~/.codebuddy/commands/statusline/`，
-> 所以 git-clone 安装后直接可用；以插件方式安装时则由插件目录的 `commands/` 自动发现。
-> 两个路径下调用名都是 `/statusline:config`。
+> 所以 git-clone 安装后直接可用，调用名为 `/statusline:config`。
 
 ## 卸载
 

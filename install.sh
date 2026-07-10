@@ -10,7 +10,7 @@ NC='\033[0m'
 
 # Resolve CodeBuddy config dir. The running process may set CODEBUDDY_CONFIG_DIR
 # (e.g. ~/.workbuddy); fall back to ~/.codebuddy. All user-facing paths below
-# are derived from this so the plugin lands in the same dir CodeBuddy reads from.
+# are derived from this so the statusline lands in the same dir CodeBuddy reads from.
 CONFIG_DIR="${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}"
 PLUGIN_DIR="$CONFIG_DIR/statusline"
 SETTINGS_FILE="$CONFIG_DIR/settings.json"
@@ -172,8 +172,7 @@ fi
 # 5. Link slash commands into the user-level commands dir
 #    CodeBuddy discovers commands from <config-dir>/commands/<ns>/<name>.md
 #    as /<ns>:<name>, so commands/config.md -> /statusline:config. This makes
-#    the commands available in any project under git-clone install (in plugin
-#    mode they are auto-discovered from the plugin's commands/ dir).
+#    the commands available in any project under git-clone install.
 echo ""
 echo -e "${YELLOW}[5/5]${NC} Linking slash commands..."
 CMD_DEST="$CONFIG_DIR/commands/statusline"

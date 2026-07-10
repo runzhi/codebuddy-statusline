@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 
 # Resolve CodeBuddy config dir. The running process may set CODEBUDDY_CONFIG_DIR
 # (e.g. ~/.workbuddy); fall back to ~/.codebuddy. All user-facing paths below
-# are derived from this so the plugin lands in the same dir CodeBuddy reads from.
+# are derived from this so the statusline lands in the same dir CodeBuddy reads from.
 if ($env:CODEBUDDY_CONFIG_DIR) {
     $ConfigDir = $env:CODEBUDDY_CONFIG_DIR
 } else {
@@ -147,8 +147,7 @@ try {
 # 5. Link slash commands into the user-level commands dir
 #    CodeBuddy discovers commands from <config-dir>\commands\<ns>\<name>.md as
 #    /<ns>:<name>, so commands\config.md -> /statusline:config. This makes the
-#    commands available in any project under git-clone install (in plugin mode
-#    they are auto-discovered from the plugin's commands/ dir).
+#    commands available in any project under git-clone install.
 Write-Host ""
 Write-Host "[5/5] Linking slash commands..." -ForegroundColor Yellow
 

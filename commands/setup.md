@@ -1,11 +1,11 @@
 ---
-description: "Install / re-run setup for the statusline plugin"
+description: "Install / re-run setup for the statusline"
 argument-hint: "[repo-url]"
 ---
 
-Set up the statusline plugin by running the install script for the current
+Set up the statusline by running the install script for the current
 platform. This is a thin wrapper over `install.sh` / `install.ps1` — it can be
-run again to re-install or repair the plugin after an update.
+run again to re-install or repair the statusline after an update.
 
 An optional `repo-url` argument (the git clone URL) is forwarded to the install
 script. If omitted, the script auto-detects the URL from the existing clone or
