@@ -39,7 +39,7 @@ echo -e "${CYAN}=== CodeBuddy Statusline Uninstaller ===${NC}"
 echo ""
 
 # 1. Remove statusLine from settings.json
-echo -e "${YELLOW}[1/3]${NC} Removing statusLine config from settings.json..."
+echo -e "${YELLOW}[1/4]${NC} Removing statusLine config from settings.json..."
 if [ -f "$SETTINGS_FILE" ]; then
     if [ -z "$PYTHON" ]; then
         echo -e "  ${RED}No working Python found, cannot clean settings.json automatically${NC}"
@@ -78,16 +78,21 @@ PY
 fi
 
 # 2. Remove plugin files
-echo -e "${YELLOW}[2/3]${NC} Removing plugin files..."
+echo -e "${YELLOW}[2/4]${NC} Removing plugin files..."
 rm -rf "$PLUGIN_DIR"
 # Also clean up old cost-monitor directory if present
 rm -rf "$HOME/.codebuddy/cost-monitor"
 echo "  Done"
 
 # 3. Remove cache
-echo -e "${YELLOW}[3/3]${NC} Removing cache..."
+echo -e "${YELLOW}[3/4]${NC} Removing cache..."
 rm -rf "$CACHE_DIR"
 rm -rf "$HOME/.codebuddy/cost-monitor-cache"
+echo "  Done"
+
+# 4. Remove linked slash commands
+echo -e "${YELLOW}[4/4]${NC} Removing linked slash commands..."
+rm -rf "$HOME/.codebuddy/commands/statusline"
 echo "  Done"
 
 echo ""

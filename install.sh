@@ -59,12 +59,12 @@ echo -e "${CYAN}=== CodeBuddy Statusline Installer ===${NC}"
 echo ""
 
 # 1. Check dependencies
-echo -e "${YELLOW}[1/4]${NC} Checking dependencies..."
+echo -e "${YELLOW}[1/5]${NC} Checking dependencies..."
 echo -e "  python ($PYTHON $PYTHON_VERSION): ${GREEN}OK${NC}"
 
 # 2. Clone / update plugin files
 echo ""
-echo -e "${YELLOW}[2/4]${NC} Installing plugin files..."
+echo -e "${YELLOW}[2/5]${NC} Installing plugin files..."
 
 if [ -d "$PLUGIN_DIR/.git" ]; then
     echo "  Updating existing installation..."
@@ -83,13 +83,13 @@ echo -e "  ${GREEN}Done${NC}"
 
 # 3. Create cache directory
 echo ""
-echo -e "${YELLOW}[3/4]${NC} Setting up cache directory..."
+echo -e "${YELLOW}[3/5]${NC} Setting up cache directory..."
 mkdir -p "$HOME/.codebuddy/statusline-cache"
 echo -e "  ${GREEN}Done${NC}"
 
 # 4. Configure statusline in settings.json
 echo ""
-echo -e "${YELLOW}[4/4]${NC} Configuring statusline in settings.json..."
+echo -e "${YELLOW}[4/5]${NC} Configuring statusline in settings.json..."
 
 # Build the statusline command with the correct python binary and path format
 if [ "$IS_WINDOWS" = "1" ]; then
@@ -161,6 +161,29 @@ PY
         exit 1
     fi
 fi
+
+# 5. Link slash commands into the user-level commands dir
+#    CodeBuddy discovers commands from ~/.codebuddy/commands/<ns>/<name>.md
+#    as /<ns>:<name>, so commands/config.md -> /statusline:config. This makes
+#    the commands available in any project under git-clone install (in plugin
+#    mode they are auto-discovered from the plugin's commands/ dir).
+echo ""
+echo -e "${YELLOW}[5/5]${NC} Linking slash commands..."
+CMD_DEST="$HOME/.codebuddy/commands/statusline"
+mkdir -p "$CMD_DEST"
+for cmd_md in "$PLUGIN_DIR"/commands/*.md; do
+    [ -e "$cmd_md" ] || continue
+    name=$(basename "$cmd_md")
+    # Remove any stale link/file first, then (re)link. Use a copy on Windows
+    # because symlinks there need admin privileges.
+    rm -f "$CMD_DEST/$name"
+    if [ "$IS_WINDOWS" = "1" ]; then
+        cp "$cmd_md" "$CMD_DEST/$name"
+    else
+        ln -s "$cmd_md" "$CMD_DEST/$name"
+    fi
+done
+echo -e "  ${GREEN}Done${NC} (e.g. /statusline:config, /statusline:cost-detail)"
 
 echo ""
 echo -e "${GREEN}=== Installation complete! ===${NC}"

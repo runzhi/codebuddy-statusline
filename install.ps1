@@ -13,7 +13,7 @@ Write-Host "=== CodeBuddy Statusline Installer ===" -ForegroundColor Cyan
 Write-Host ""
 
 # 1. Check dependencies
-Write-Host "[1/4] Checking dependencies..." -ForegroundColor Yellow
+Write-Host "[1/5] Checking dependencies..." -ForegroundColor Yellow
 
 $PythonCmd = $null
 $PythonVersion = $null
@@ -59,7 +59,7 @@ Write-Host "  python ($PythonCmd $PythonVersion): " -NoNewline; Write-Host "OK" 
 
 # 2. Clone / update plugin files
 Write-Host ""
-Write-Host "[2/4] Installing plugin files..." -ForegroundColor Yellow
+Write-Host "[2/5] Installing plugin files..." -ForegroundColor Yellow
 
 if (Test-Path (Join-Path $PluginDir ".git")) {
     Write-Host "  Updating existing installation..."
@@ -75,13 +75,13 @@ Write-Host "  " -NoNewline; Write-Host "Done" -ForegroundColor Green
 
 # 3. Create cache directory
 Write-Host ""
-Write-Host "[3/4] Setting up cache directory..." -ForegroundColor Yellow
+Write-Host "[3/5] Setting up cache directory..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null
 Write-Host "  " -NoNewline; Write-Host "Done" -ForegroundColor Green
 
 # 4. Configure statusline in settings.json
 Write-Host ""
-Write-Host "[4/4] Configuring statusline in settings.json..." -ForegroundColor Yellow
+Write-Host "[4/5] Configuring statusline in settings.json..." -ForegroundColor Yellow
 
 $ScriptPath = Join-Path $PluginDir "statusline.py"
 $StatuslineCmd = "$PythonCmd `"$ScriptPath`""
@@ -134,6 +134,28 @@ try {
     }
 } finally {
     Remove-Item $helperPath -ErrorAction SilentlyContinue
+}
+
+# 5. Link slash commands into the user-level commands dir
+#    CodeBuddy discovers commands from ~\.codebuddy\commands\<ns>\<name>.md as
+#    /<ns>:<name>, so commands\config.md -> /statusline:config. This makes the
+#    commands available in any project under git-clone install (in plugin mode
+#    they are auto-discovered from the plugin's commands/ dir).
+Write-Host ""
+Write-Host "[5/5] Linking slash commands..." -ForegroundColor Yellow
+
+$CmdDest = Join-Path $env:USERPROFILE ".codebuddy\commands\statusline"
+New-Item -ItemType Directory -Path $CmdDest -Force | Out-Null
+$CmdSrc = Join-Path $PluginDir "commands"
+if (Test-Path $CmdSrc) {
+    foreach ($cmdFile in Get-ChildItem -Path $CmdSrc -Filter *.md) {
+        $dest = Join-Path $CmdDest $cmdFile.Name
+        # Overwrite any existing link/file (copy; symlinks need admin on Windows)
+        Copy-Item -Path $cmdFile.FullName -Destination $dest -Force
+    }
+    Write-Host "  " -NoNewline; Write-Host "Done (e.g. /statusline:config, /statusline:cost-detail)" -ForegroundColor Green
+} else {
+    Write-Host "  " -NoNewline; Write-Host "No commands dir found, skipped" -ForegroundColor Yellow
 }
 
 Write-Host ""

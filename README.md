@@ -137,6 +137,63 @@ python3 ~/.codebuddy/statusline/cost-detail.py
 ================================================================================
 ```
 
+## 自定义显示项
+
+状态栏的显示内容和顺序可通过插件自带的配置文件控制，无需修改代码。
+
+配置文件路径：`~/.codebuddy/plugins/data/statusline/config.json`
+
+```jsonc
+{
+  "layout": {
+    "line1_order": ["cwd_git", "model", "context_bar", "compact_periodic",
+                    "tokens", "requests", "cost", "credits", "time", "lines"],
+    "line1_hidden": [],
+    "tools": true,
+    "recent": true
+  }
+}
+```
+
+字段含义：
+
+- `line1_order`：第一行各显示块的**顺序**。列出的块按此顺序显示。
+- `line1_hidden`：需要**隐藏**的块（即便出现在 `line1_order` 中也隐藏）。
+- `tools` / `recent`：第二行（工具调用）、第三行（最近交互）的整行开关。
+
+可调的块（`line1_order` / `line1_hidden` 的取值）：
+
+```
+cwd_git · model · context_bar · compact_periodic
+tokens · requests · cost · credits · time · lines
+```
+
+### 两条关键规则
+
+1. **未知块自动追加到末尾**：代码里存在、但你的配置既没列出也没隐藏的块（例如未来版本新增的块），会自动追加到第一行末尾并显示——所以升级插件后新功能不会悄悄消失。
+2. **「漏写」≠「隐藏」**：仅仅把某个块从 `line1_order` 删掉，它**不会**消失，而是按规则 1 自动显示在末尾。要真正隐藏某块，必须把它放进 `line1_hidden`。
+
+配置文件在每次渲染时重新读取，修改后**下一次状态栏刷新即生效，无需重启会话**。配置文件损坏或格式错误时，自动回退到默认布局（全部显示），不会让状态栏变空白。
+
+### 用命令调整（推荐）
+
+直接用 `/statusline:config` 斜杠命令即可让 Agent 帮你改配置，无需手编 JSON：
+
+```
+/statusline:config hide credits time          # 隐藏 credits、time 块
+/statusline:config show credits               # 重新显示
+/statusline:config move cost to front         # 把 cost 移到最前
+/statusline:config move tokens after model    # 把 tokens 放到 model 之后
+/statusline:config disable tools              # 关闭第二行
+/statusline:config enable recent              # 打开第三行
+/statusline:config reset                      # 恢复默认（删除配置文件）
+/statusline:config list                       # 查看当前生效布局
+```
+
+> 命令由 `install.sh` / `install.ps1` 自动链接到 `~/.codebuddy/commands/statusline/`，
+> 所以 git-clone 安装后直接可用；以插件方式安装时则由插件目录的 `commands/` 自动发现。
+> 两个路径下调用名都是 `/statusline:config`。
+
 ## 卸载
 
 ```bash

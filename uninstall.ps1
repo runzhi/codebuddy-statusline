@@ -22,7 +22,7 @@ Write-Host "=== CodeBuddy Statusline Uninstaller ===" -ForegroundColor Cyan
 Write-Host ""
 
 # 1. Remove statusLine from settings.json
-Write-Host "[1/3] Removing statusLine config from settings.json..." -ForegroundColor Yellow
+Write-Host "[1/4] Removing statusLine config from settings.json..." -ForegroundColor Yellow
 if (Test-Path $SettingsFile) {
     if (-not $PythonCmd) {
         Write-Host "  No working Python found, cannot clean settings.json automatically" -ForegroundColor Red
@@ -67,17 +67,23 @@ else:
 }
 
 # 2. Remove plugin files
-Write-Host "[2/3] Removing plugin files..." -ForegroundColor Yellow
+Write-Host "[2/4] Removing plugin files..." -ForegroundColor Yellow
 if (Test-Path $PluginDir) { Remove-Item $PluginDir -Recurse -Force }
 $OldDir = Join-Path $env:USERPROFILE ".codebuddy\cost-monitor"
 if (Test-Path $OldDir) { Remove-Item $OldDir -Recurse -Force }
 Write-Host "  Done"
 
 # 3. Remove cache
-Write-Host "[3/3] Removing cache..." -ForegroundColor Yellow
+Write-Host "[3/4] Removing cache..." -ForegroundColor Yellow
 if (Test-Path $CacheDir) { Remove-Item $CacheDir -Recurse -Force }
 $OldCache = Join-Path $env:USERPROFILE ".codebuddy\cost-monitor-cache"
 if (Test-Path $OldCache) { Remove-Item $OldCache -Recurse -Force }
+Write-Host "  Done"
+
+# 4. Remove linked slash commands
+Write-Host "[4/4] Removing linked slash commands..." -ForegroundColor Yellow
+$CmdLinkDir = Join-Path $env:USERPROFILE ".codebuddy\commands\statusline"
+if (Test-Path $CmdLinkDir) { Remove-Item $CmdLinkDir -Recurse -Force }
 Write-Host "  Done"
 
 Write-Host ""

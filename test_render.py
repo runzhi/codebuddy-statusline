@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 """Unit tests for render.py module"""
 
+import json
+import os
+import re
 import unittest
 
-from render import format_tools, _format_tool_entry, format_recent_calls
+from render import (
+    BLOCKS_LINE1,
+    build_statusline,
+    format_recent_calls,
+    format_tools,
+    resolve_layout,
+    _format_tool_entry,
+)
 
 class TestFormatTools(unittest.TestCase):
     def test_empty(self):
@@ -95,3 +105,134 @@ class TestFormatRecentCalls(unittest.TestCase):
         plain = re.sub(r'\033\[[0-9;]*m', '', result)
         self.assertIn("…", plain)
         self.assertLessEqual(len(plain), 70)
+
+
+class TestResolveLayout(unittest.TestCase):
+    def test_default_when_no_config(self):
+        layout = resolve_layout(None)
+        self.assertEqual(layout["line1_order"], BLOCKS_LINE1)
+        self.assertTrue(layout["tools"])
+        self.assertTrue(layout["recent"])
+
+    def test_default_when_garbled(self):
+        # Wrong shape must fall back to defaults, never raise.
+        self.assertEqual(resolve_layout({"layout": "nope"})["line1_order"], BLOCKS_LINE1)
+        self.assertEqual(resolve_layout({"layout": {"line1_order": 123}})["line1_order"], BLOCKS_LINE1)
+
+    def test_hidden_omitted(self):
+        cfg = {"layout": {"line1_hidden": ["credits", "time"]}}
+        order = resolve_layout(cfg)["line1_order"]
+        self.assertNotIn("credits", order)
+        self.assertNotIn("time", order)
+
+    def test_reorder_then_auto_append(self):
+        # Only two blocks listed -> the rest auto-append in canonical order.
+        cfg = {"layout": {"line1_order": ["model", "cost"]}}
+        order = resolve_layout(cfg)["line1_order"]
+        self.assertEqual(order[0], "model")
+        self.assertEqual(order[1], "cost")
+        # All known blocks still present (auto-appended).
+        self.assertEqual(set(order), set(BLOCKS_LINE1))
+
+    def test_hidden_overrides_order(self):
+        # A block in both order and hidden must be excluded.
+        cfg = {"layout": {"line1_order": ["cwd_git", "credits"], "line1_hidden": ["credits"]}}
+        order = resolve_layout(cfg)["line1_order"]
+        self.assertNotIn("credits", order)
+        self.assertIn("cwd_git", order)
+
+    def test_unknown_id_ignored(self):
+        cfg = {"layout": {"line1_order": ["cwd_git", "bogus", "model"]}}
+        order = resolve_layout(cfg)["line1_order"]
+        self.assertNotIn("bogus", order)
+        self.assertEqual(order[0], "cwd_git")
+        self.assertEqual(order[1], "model")
+
+    def test_line_toggles_default_on(self):
+        cfg = {"layout": {"tools": False, "recent": False}}
+        layout = resolve_layout(cfg)
+        self.assertFalse(layout["tools"])
+        self.assertFalse(layout["recent"])
+
+
+class TestBuildStatuslineConfig(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        os.environ["CODEBUDDY_PLUGIN_DATA"] = self._tmp
+
+    def tearDown(self):
+        os.environ.pop("CODEBUDDY_PLUGIN_DATA", None)
+
+    def _write_config(self, layout):
+        with open(os.path.join(self._tmp, "config.json"), "w") as f:
+            json.dump({"layout": layout}, f)
+
+    def _sample(self):
+        inp = {
+            "model": {"display_name": "claude-sonnet"},
+            "cost": {"total_cost_usd": 0.02, "total_duration_ms": 65000,
+                     "total_lines_added": 3, "total_lines_removed": 1},
+            "context_window": {"used_percentage": 12.5, "context_window_size": 200000,
+                              "current_usage": {"input_tokens": 25000}},
+        }
+        stats = {
+            "total_input": 3200, "total_output": 800, "total_cache_read": 1500,
+            "total_reasoning": 0, "total_credits": 0, "request_count": 5,
+            "tool_counts": {"Bash": 2, "Read": 1}, "running_agents": 0,
+            "compact_count": 0, "periodic_count": 0,
+            "recent_calls": [{"name": "Bash", "summary": "ls -la"}],
+            "last_input": 3200, "last_output": 800, "last_cache_read": 1500,
+            "last_credits": 0, "last_cost": 0.01,
+        }
+        return inp, stats
+
+    def test_default_output_unchanged(self):
+        # No config file -> identical to the pre-config build.
+        inp, stats = self._sample()
+        out = build_statusline(inp, stats)
+        self.assertIn("claude-sonnet", out)
+        # cost value is contiguous (no ANSI inside format_cost output)
+        self.assertIn("$0.02(¥0.14)", out)
+        self.assertIn("Tools:", out)
+        self.assertIn("Recent:", out)
+
+    def test_hidden_removes_from_output(self):
+        self._write_config({"line1_hidden": ["credits", "time"]})
+        inp, stats = self._sample()
+        out = build_statusline(inp, stats)
+        # credits value 0 here so weak signal; check 'Time:' absence instead.
+        self.assertNotIn("Time:", out)
+
+    def test_disable_lines(self):
+        self._write_config({"tools": False, "recent": False})
+        inp, stats = self._sample()
+        out = build_statusline(inp, stats)
+        self.assertNotIn("Tools:", out)
+        self.assertNotIn("Recent:", out)
+
+    def test_compact_periodic_own_slot(self):
+        # compact_periodic must render as its own " | "-separated block,
+        # not glued onto the previous segment (the pre-config behavior).
+        self._write_config({})
+        inp, stats = self._sample()
+        stats["compact_count"] = 1
+        stats["periodic_count"] = 2
+        out = re.sub(r'\033\[[0-9;]*m', '', build_statusline(inp, stats))
+        self.assertIn("| Compact×1", out)
+        self.assertIn("Compact×1 Periodic×2", out)
+
+    def test_compact_periodic_only_periodic_no_double_space(self):
+        # When only Periodic is present, the block must not gain a leading
+        # space (which would produce " |  Periodic" with a double space).
+        self._write_config({})
+        inp, stats = self._sample()
+        stats["compact_count"] = 0
+        stats["periodic_count"] = 1
+        out = re.sub(r'\033\[[0-9;]*m', '', build_statusline(inp, stats))
+        self.assertIn("| Periodic×1", out)
+        self.assertNotIn("|  Periodic", out)
+
+
+if __name__ == "__main__":
+    unittest.main()
