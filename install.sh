@@ -8,8 +8,12 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-PLUGIN_DIR="$HOME/.codebuddy/statusline"
-SETTINGS_FILE="$HOME/.codebuddy/settings.json"
+# Resolve CodeBuddy config dir. The running process may set CODEBUDDY_CONFIG_DIR
+# (e.g. ~/.workbuddy); fall back to ~/.codebuddy. All user-facing paths below
+# are derived from this so the plugin lands in the same dir CodeBuddy reads from.
+CONFIG_DIR="${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}"
+PLUGIN_DIR="$CONFIG_DIR/statusline"
+SETTINGS_FILE="$CONFIG_DIR/settings.json"
 REPO_URL="${1:-}"
 if [ -z "$REPO_URL" ] && [ -d "$PLUGIN_DIR/.git" ]; then
     REPO_URL=$(git -C "$PLUGIN_DIR" remote get-url origin 2>/dev/null || echo "")
@@ -84,7 +88,10 @@ echo -e "  ${GREEN}Done${NC}"
 # 3. Create cache directory
 echo ""
 echo -e "${YELLOW}[3/5]${NC} Setting up cache directory..."
-mkdir -p "$HOME/.codebuddy/statusline-cache"
+# Matches the runtime cache dir: <config-dir>/plugins/data/statusline/cache
+# (see stats.py CACHE_DIR). The old ~/.codebuddy/statusline-cache no longer
+# exists — do NOT recreate it.
+mkdir -p "$CONFIG_DIR/plugins/data/statusline/cache"
 echo -e "  ${GREEN}Done${NC}"
 
 # 4. Configure statusline in settings.json
@@ -94,12 +101,12 @@ echo -e "${YELLOW}[4/5]${NC} Configuring statusline in settings.json..."
 # Build the statusline command with the correct python binary and path format
 if [ "$IS_WINDOWS" = "1" ]; then
     # Use Windows-style path for the command so CodeBuddy can execute it
-    WIN_PLUGIN_DIR=$(cygpath -w "$HOME/.codebuddy/statusline")
+    WIN_PLUGIN_DIR=$(cygpath -w "$CONFIG_DIR/statusline")
     STATUSLINE_CMD="$PYTHON \"${WIN_PLUGIN_DIR}\\statusline.py\""
     # Python on Windows needs Windows-style paths, not MSYS /c/... paths
     SETTINGS_PATH=$(cygpath -w "$SETTINGS_FILE")
 else
-    STATUSLINE_CMD="$PYTHON ~/.codebuddy/statusline/statusline.py"
+    STATUSLINE_CMD="$PYTHON $CONFIG_DIR/statusline/statusline.py"
     SETTINGS_PATH="$SETTINGS_FILE"
 fi
 
@@ -163,13 +170,13 @@ PY
 fi
 
 # 5. Link slash commands into the user-level commands dir
-#    CodeBuddy discovers commands from ~/.codebuddy/commands/<ns>/<name>.md
+#    CodeBuddy discovers commands from <config-dir>/commands/<ns>/<name>.md
 #    as /<ns>:<name>, so commands/config.md -> /statusline:config. This makes
 #    the commands available in any project under git-clone install (in plugin
 #    mode they are auto-discovered from the plugin's commands/ dir).
 echo ""
 echo -e "${YELLOW}[5/5]${NC} Linking slash commands..."
-CMD_DEST="$HOME/.codebuddy/commands/statusline"
+CMD_DEST="$CONFIG_DIR/commands/statusline"
 mkdir -p "$CMD_DEST"
 for cmd_md in "$PLUGIN_DIR"/commands/*.md; do
     [ -e "$cmd_md" ] || continue

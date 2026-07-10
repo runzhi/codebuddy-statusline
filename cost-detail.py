@@ -36,7 +36,10 @@ def find_latest_transcript():
             pass
 
     # Find latest transcript in project dirs
-    base = os.path.expanduser("~/.codebuddy/projects")
+    base = os.path.join(
+        os.environ.get('CODEBUDDY_CONFIG_DIR', '') or os.path.expanduser("~/.codebuddy"),
+        "projects",
+    )
     if not os.path.exists(base):
         return None
 

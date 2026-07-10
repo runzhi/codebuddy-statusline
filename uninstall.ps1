@@ -2,9 +2,16 @@
 
 $ErrorActionPreference = "Stop"
 
-$PluginDir = Join-Path $env:USERPROFILE ".codebuddy\statusline"
-$CacheDir = Join-Path $env:USERPROFILE ".codebuddy\statusline-cache"
-$SettingsFile = Join-Path $env:USERPROFILE ".codebuddy\settings.json"
+# Resolve CodeBuddy config dir (same logic as install.ps1). Must match the dir
+# the plugin was installed into, otherwise uninstall would miss its files.
+if ($env:CODEBUDDY_CONFIG_DIR) {
+    $ConfigDir = $env:CODEBUDDY_CONFIG_DIR
+} else {
+    $ConfigDir = Join-Path $env:USERPROFILE ".codebuddy"
+}
+$PluginDir = Join-Path $ConfigDir "statusline"
+$CacheDir = Join-Path $ConfigDir "plugins\data\statusline"
+$SettingsFile = Join-Path $ConfigDir "settings.json"
 
 # Resolve python command
 $PythonCmd = $null
@@ -69,20 +76,20 @@ else:
 # 2. Remove plugin files
 Write-Host "[2/4] Removing plugin files..." -ForegroundColor Yellow
 if (Test-Path $PluginDir) { Remove-Item $PluginDir -Recurse -Force }
-$OldDir = Join-Path $env:USERPROFILE ".codebuddy\cost-monitor"
+$OldDir = Join-Path $ConfigDir "cost-monitor"
 if (Test-Path $OldDir) { Remove-Item $OldDir -Recurse -Force }
 Write-Host "  Done"
 
 # 3. Remove cache
 Write-Host "[3/4] Removing cache..." -ForegroundColor Yellow
 if (Test-Path $CacheDir) { Remove-Item $CacheDir -Recurse -Force }
-$OldCache = Join-Path $env:USERPROFILE ".codebuddy\cost-monitor-cache"
+$OldCache = Join-Path $ConfigDir "cost-monitor-cache"
 if (Test-Path $OldCache) { Remove-Item $OldCache -Recurse -Force }
 Write-Host "  Done"
 
 # 4. Remove linked slash commands
 Write-Host "[4/4] Removing linked slash commands..." -ForegroundColor Yellow
-$CmdLinkDir = Join-Path $env:USERPROFILE ".codebuddy\commands\statusline"
+$CmdLinkDir = Join-Path $ConfigDir "commands\statusline"
 if (Test-Path $CmdLinkDir) { Remove-Item $CmdLinkDir -Recurse -Force }
 Write-Host "  Done"
 

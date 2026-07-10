@@ -3,9 +3,17 @@
 
 $ErrorActionPreference = "Stop"
 
-$PluginDir = Join-Path $env:USERPROFILE ".codebuddy\statusline"
-$SettingsFile = Join-Path $env:USERPROFILE ".codebuddy\settings.json"
-$CacheDir = Join-Path $env:USERPROFILE ".codebuddy\statusline-cache"
+# Resolve CodeBuddy config dir. The running process may set CODEBUDDY_CONFIG_DIR
+# (e.g. ~/.workbuddy); fall back to ~/.codebuddy. All user-facing paths below
+# are derived from this so the plugin lands in the same dir CodeBuddy reads from.
+if ($env:CODEBUDDY_CONFIG_DIR) {
+    $ConfigDir = $env:CODEBUDDY_CONFIG_DIR
+} else {
+    $ConfigDir = Join-Path $env:USERPROFILE ".codebuddy"
+}
+$PluginDir = Join-Path $ConfigDir "statusline"
+$SettingsFile = Join-Path $ConfigDir "settings.json"
+$CacheDir = Join-Path $ConfigDir "plugins\data\statusline\cache"
 $RepoUrl = if ($args[0]) { $args[0] } elseif (Test-Path (Join-Path $PluginDir ".git")) { try { git -C $PluginDir remote get-url origin 2>$null } catch { "" } } else { "" }
 if (-not $RepoUrl) { $RepoUrl = "https://github.com/runzhi/codebuddy-statusline.git" }
 
@@ -137,14 +145,14 @@ try {
 }
 
 # 5. Link slash commands into the user-level commands dir
-#    CodeBuddy discovers commands from ~\.codebuddy\commands\<ns>\<name>.md as
+#    CodeBuddy discovers commands from <config-dir>\commands\<ns>\<name>.md as
 #    /<ns>:<name>, so commands\config.md -> /statusline:config. This makes the
 #    commands available in any project under git-clone install (in plugin mode
 #    they are auto-discovered from the plugin's commands/ dir).
 Write-Host ""
 Write-Host "[5/5] Linking slash commands..." -ForegroundColor Yellow
 
-$CmdDest = Join-Path $env:USERPROFILE ".codebuddy\commands\statusline"
+$CmdDest = Join-Path $ConfigDir "commands\statusline"
 New-Item -ItemType Directory -Path $CmdDest -Force | Out-Null
 $CmdSrc = Join-Path $PluginDir "commands"
 if (Test-Path $CmdSrc) {

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Edit the statusline layout config atomically.
 
-Backs the `/statusline` slash command. Reads/writes
-`~/.codebuddy/plugins/data/statusline/config.json` (reusing the same plugin
-data dir as the cache). Subcommands:
+Backs the `/statusline` slash command. Reads/writes the layout config under
+the plugin data dir (`CODEBUDDY_CONFIG_DIR` or ~/.codebuddy, then
+`plugins/data/statusline/config.json`), reusing the same dir as the cache.
+Subcommands:
 
     hide   <block>...          add block(s) to line1_hidden
     show   <block>...          remove block(s) from line1_hidden

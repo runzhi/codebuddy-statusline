@@ -7,9 +7,12 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-PLUGIN_DIR="$HOME/.codebuddy/statusline"
-CACHE_DIR="$HOME/.codebuddy/statusline-cache"
-SETTINGS_FILE="$HOME/.codebuddy/settings.json"
+# Resolve CodeBuddy config dir (same logic as install.sh). Must match the dir
+# the plugin was installed into, otherwise uninstall would miss its files.
+CONFIG_DIR="${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}"
+PLUGIN_DIR="$CONFIG_DIR/statusline"
+CACHE_DIR="$CONFIG_DIR/plugins/data/statusline"
+SETTINGS_FILE="$CONFIG_DIR/settings.json"
 
 # Resolve python command — must verify it actually runs
 _resolve_python() {
@@ -81,18 +84,18 @@ fi
 echo -e "${YELLOW}[2/4]${NC} Removing plugin files..."
 rm -rf "$PLUGIN_DIR"
 # Also clean up old cost-monitor directory if present
-rm -rf "$HOME/.codebuddy/cost-monitor"
+rm -rf "$CONFIG_DIR/cost-monitor"
 echo "  Done"
 
 # 3. Remove cache
 echo -e "${YELLOW}[3/4]${NC} Removing cache..."
 rm -rf "$CACHE_DIR"
-rm -rf "$HOME/.codebuddy/cost-monitor-cache"
+rm -rf "$CONFIG_DIR/cost-monitor-cache"
 echo "  Done"
 
 # 4. Remove linked slash commands
 echo -e "${YELLOW}[4/4]${NC} Removing linked slash commands..."
-rm -rf "$HOME/.codebuddy/commands/statusline"
+rm -rf "$CONFIG_DIR/commands/statusline"
 echo "  Done"
 
 echo ""

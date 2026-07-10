@@ -42,16 +42,18 @@ RECENT_CALLS_SUMMARY_LEN = 60
 # Configurable layout
 #
 # The three-line statusline is assembled from discrete "blocks". A plugin-owned
-# config file (~/.codebuddy/plugins/data/statusline/config.json) decides which
-# blocks are shown, their order on line 1, and whether the Tools/Recent lines
-# are enabled. With no config file, BLOCKS_LINE1 is the default layout and the
-# output is identical to the pre-config build.
+# config file (<config-dir>/plugins/data/statusline/config.json, where
+# config-dir = CODEBUDDY_CONFIG_DIR or ~/.codebuddy) decides which blocks are
+# shown, their order on line 1, and whether the Tools/Recent lines are enabled.
+# With no config file, BLOCKS_LINE1 is the default layout and the output is
+# identical to the pre-config build.
 # ---------------------------------------------------------------------------
 
 def _config_path():
     """Location of the layout config, reusing the plugin data dir."""
-    base = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.expanduser(
-        "~/.codebuddy/plugins/data/statusline"
+    base = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.join(
+        os.environ.get('CODEBUDDY_CONFIG_DIR', '') or os.path.expanduser("~/.codebuddy"),
+        "plugins/data/statusline",
     )
     return os.path.join(base, "config.json")
 

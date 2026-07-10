@@ -13,7 +13,10 @@ import subprocess
 import sys
 import time
 
-_PLUGIN_DATA = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.expanduser("~/.codebuddy/plugins/data/statusline")
+# Resolve the CodeBuddy config dir. The running process may set
+# CODEBUDDY_CONFIG_DIR (e.g. ~/.workbuddy); fall back to ~/.codebuddy.
+_CONFIG_DIR = os.environ.get('CODEBUDDY_CONFIG_DIR', '') or os.path.expanduser("~/.codebuddy")
+_PLUGIN_DATA = os.environ.get('CODEBUDDY_PLUGIN_DATA', '') or os.path.join(_CONFIG_DIR, "plugins/data/statusline")
 CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
 CACHE_VERSION = 8
