@@ -5,6 +5,7 @@ import json
 import os
 import re
 import unittest
+from unittest import mock
 
 import stats
 
@@ -14,7 +15,9 @@ from render import (
     format_recent_calls,
     format_tools,
     resolve_layout,
+    _display_dir_name,
     _format_tool_entry,
+    _render_cwd_git,
 )
 
 class TestFormatTools(unittest.TestCase):
@@ -155,6 +158,76 @@ class TestResolveLayout(unittest.TestCase):
         layout = resolve_layout(cfg)
         self.assertFalse(layout["tools"])
         self.assertFalse(layout["recent"])
+
+
+class TestDisplayDirName(unittest.TestCase):
+    def test_normal_dir(self):
+        self.assertEqual(_display_dir_name("/home/user/myproject"), "myproject")
+
+    def test_trailing_slash(self):
+        self.assertEqual(_display_dir_name("/home/user/myproject/"), "myproject")
+
+    def test_codebuddy_worktree_shows_project_name(self):
+        path = "/Users/runzhi/.codebuddy/statusline/.codebuddy/worktrees/worktree"
+        self.assertEqual(_display_dir_name(path), "statusline")
+
+    def test_git_linked_worktree_absolute_gitdir(self):
+        # Simulate a git-linked worktree: .git is a file pointing at the
+        # main repo's .git/worktrees/<name>.
+        import tempfile
+        import textwrap
+        with tempfile.TemporaryDirectory() as d:
+            wt = os.path.join(d, "my-wt")
+            os.makedirs(wt)
+            with open(os.path.join(wt, ".git"), "w") as f:
+                f.write("gitdir: %s/myproject/.git/worktrees/my-wt\n"
+                        % d)
+            self.assertEqual(_display_dir_name(wt), "myproject")
+
+    def test_git_linked_worktree_relative_gitdir(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            # Layout: <d>/checkouts/<wt>  with .git pointing at
+            # ../myproject/.git/worktrees/<wt>
+            wt = os.path.join(d, "checkouts", "wt")
+            os.makedirs(wt)
+            with open(os.path.join(wt, ".git"), "w") as f:
+                f.write("gitdir: ../myproject/.git/worktrees/wt\n")
+            self.assertEqual(_display_dir_name(wt), "myproject")
+
+    def test_regular_git_repo_not_worktree(self):
+        # A normal repo has a .git *directory*, not a link file.
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(d, "realproject")
+            os.makedirs(os.path.join(repo, ".git"))
+            self.assertEqual(_display_dir_name(repo), "realproject")
+
+    def test_empty(self):
+        self.assertEqual(_display_dir_name(""), "")
+        self.assertEqual(_display_dir_name(None), "")
+
+
+class TestRenderCwdGit(unittest.TestCase):
+    def _call(self, current_dir, git_info):
+        with mock.patch("render.get_git_info", return_value=git_info):
+            return _render_cwd_git({"workspace": {"current_dir": current_dir}}, {})
+
+    def test_worktree_shows_project_name_with_branch(self):
+        out = self._call(
+            "/Users/runzhi/.codebuddy/statusline/.codebuddy/worktrees/worktree",
+            {"branch": "main", "dirty": False, "ahead": 0, "behind": 0},
+        )
+        self.assertIn("statusline", out)
+        self.assertIn("main", out)
+
+    def test_normal_dir(self):
+        out = self._call(
+            "/home/user/myproject",
+            {"branch": "dev", "dirty": True, "ahead": 0, "behind": 0},
+        )
+        self.assertIn("myproject", out)
+        self.assertIn("dev", out)
 
 
 class TestBuildStatuslineConfig(unittest.TestCase):

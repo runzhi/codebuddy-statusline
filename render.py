@@ -8,6 +8,7 @@ the entry point a thin orchestrator and groups all presentation logic.
 
 import json
 import os
+import re
 
 from formatting import (
     BLUE,
@@ -27,6 +28,50 @@ from formatting import (
 )
 from gitinfo import format_git_info, get_git_info
 import stats
+
+
+# A CodeBuddy worktree lives at <project>/.codebuddy/worktrees/<name>; the leaf
+# is a generated name ("worktree") that is meaningless to the user.
+_CODEBUDDY_WORKTREE_RE = re.compile(r'^(?P<root>.+)/\.codebuddy/worktrees/[^/]+/?$')
+# A git-linked worktree's .git is a *file* containing
+# "gitdir: <mainrepo>/.git/worktrees/<name>".
+_GIT_WORKTREE_GITDIR_RE = re.compile(r'^(?P<root>.+?)/\.git/worktrees/[^/]+/?$')
+
+
+def _display_dir_name(cwd):
+    """Directory name to show for *cwd*.
+
+    Worktrees obscure the real project name. Resolve back to the main project
+    directory in either common case:
+      * CodeBuddy worktrees: <project>/.codebuddy/worktrees/<name>
+      * git-linked worktrees: a .git *file* pointing at
+        <mainrepo>/.git/worktrees/<name>
+    Otherwise fall back to the plain directory name.
+    """
+    if not cwd:
+        return ""
+    cwd = cwd.rstrip('/')
+    m = _CODEBUDDY_WORKTREE_RE.match(cwd)
+    if m:
+        return os.path.basename(m.group('root')) or ""
+    git_path = os.path.join(cwd, '.git')
+    if os.path.isfile(git_path):
+        try:
+            with open(git_path, 'r') as f:
+                content = f.read()
+        except OSError:
+            pass
+        else:
+            gm = re.search(r'gitdir:\s*(\S+)', content)
+            if gm:
+                gd = gm.group(1)
+                if not os.path.isabs(gd):
+                    gd = os.path.normpath(os.path.join(cwd, gd))
+                wm = _GIT_WORKTREE_GITDIR_RE.match(gd)
+                if wm:
+                    return os.path.basename(wm.group('root')) or ""
+    return os.path.basename(cwd) or ""
+
 
 # Tool display order and short names
 TOOL_ORDER = ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "WebFetch", "WebSearch"]
@@ -122,18 +167,17 @@ def resolve_layout(cfg):
 # block has nothing to show.
 
 def _render_cwd_git(input_data, stats):
-    cwd_name = os.path.basename(os.getcwd())
     workspace = input_data.get('workspace') or {}
     git_cwd = workspace.get('current_dir') or os.getcwd()
+    cwd_name = _display_dir_name(git_cwd)
     git_info = get_git_info(git_cwd)
     git_part = format_git_info(git_info) if git_info else ""
-    if cwd_name and git_part:
-        return f"{CYAN}{cwd_name}{NC} {git_part}"
-    elif cwd_name:
-        return f"{CYAN}{cwd_name}{NC}"
-    elif git_part:
-        return git_part
-    return ""
+    parts = []
+    if cwd_name:
+        parts.append(f"{CYAN}{cwd_name}{NC}")
+    if git_part:
+        parts.append(git_part)
+    return " ".join(parts)
 
 
 def _render_model(input_data, stats):
@@ -143,23 +187,22 @@ def _render_model(input_data, stats):
 
 
 def _render_context_bar(input_data, stats):
+    # used_percentage is always 0-100 (host computes it as
+    # Math.round(ratio * 1e4) / 100). Convert to a 0-1 ratio for the bar.
     ctx = input_data.get('context_window') or {}
     used_pct = ctx.get('used_percentage')
     ctx_size = ctx.get('context_window_size', 0) or 0
-    current_usage = ctx.get('current_usage') or {}
-    current_tokens = 0
-    if isinstance(current_usage, dict):
-        current_tokens = current_usage.get('input_tokens', 0) or 0
+    current_usage = ctx.get('current_usage')
+    current_tokens = (
+        current_usage.get('input_tokens', 0) or 0
+        if isinstance(current_usage, dict) else 0
+    )
     if used_pct is not None:
         try:
-            # used_percentage is always 0-100 (host computes it as
-            # Math.round(ratio * 1e4) / 100). The old `used_pct > 1`
-            # heuristic misread sub-1% values (e.g. 0.81 meaning 0.81%)
-            # as a 0-1 ratio (81%).
             pct = min(used_pct / 100.0, 1.0)
         except (TypeError, ValueError):
-            used_pct = None
-        else:
+            pct = None
+        if pct is not None:
             bar, bar_color = make_progress_bar(pct, width=10)
             pct_display = round(pct * 100)
             if ctx_size > 0 and current_tokens > 0:
@@ -172,7 +215,7 @@ def _render_context_bar(input_data, stats):
             if ctx_str:
                 ctx_part += f" {DIM}{ctx_str}{NC}"
             return ctx_part
-    if used_pct is None and ctx_size > 0:
+    if ctx_size > 0:
         # No percentage data, but we still have max context size
         return f"{DIM}Max:{format_tokens(ctx_size)}{NC}"
     return ""
