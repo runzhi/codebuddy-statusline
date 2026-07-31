@@ -248,7 +248,8 @@ def _render_tokens(input_data, stats):
         f"{GREEN}Out:{NC}{format_tokens(display_out)}",
     ]
     if display_cache > 0:
-        token_parts.append(f"{DIM}Cache:{NC}{format_tokens(display_cache)}")
+        cache_pct = int(display_cache / display_in * 100) if display_in > 0 else 0
+        token_parts.append(f"{DIM}Cache:{NC}{format_tokens(display_cache)}({cache_pct}%)")
     if stats.get('total_reasoning', 0) > 0:
         token_parts.append(f"{DIM}Think:{NC}{format_tokens(stats['total_reasoning'])}")
     return " ".join(token_parts)

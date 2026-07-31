@@ -17,7 +17,7 @@ CodeBuddy Code 的 statusline 插件。stdin 接收状态 JSON → 增量解析 
 | `parsing.py` | transcript 增量解析：`parse_transcript_incremental`/`add_line_to_stats`/`_extract_call_summary`，共享 `_read_transcript_delta`/`_merge_delta`（主/sub 解析去重） |
 | `render.py` | 渲染：`format_tools`/`format_recent_calls`/`build_statusline`（三行装配） |
 | `cost-detail.py` | 按模型分组的详细报告 |
-| `test_*.py` | 按模块拆分的单元测试（共 170 用例）：`test_formatting`/`test_gitinfo`/`test_stats`/`test_parsing`/`test_render` + `test_statusline`（入口集成冒烟） |
+| `test_*.py` | 按模块拆分的单元测试（共 206 用例）：`test_formatting`/`test_gitinfo`/`test_stats`/`test_parsing`/`test_render` + `test_statusline`（入口集成冒烟） |
 | `install.sh`/`install.ps1` | 安装脚本（内外网双地址） |
 | `uninstall.sh`/`uninstall.ps1` | 卸载脚本 |
 | `commands/` | 斜杠命令定义 |

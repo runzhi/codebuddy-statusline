@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### 新增 (Added)
+
+- **tokens 块 Cache 显示总命中率**：第一行 Cache 从 `Cache:2.2M` 变为 `Cache:2.2M(74%)`（Cache/In 百分比，`int()` 向下截断），与第三行最近一次交互的格式对齐。纯展示改动，CACHE_VERSION 不变。
+
 ### 修复 (Fixed)
 
 - **Compact 检测适配新格式**：CodeBuddy 的 compact 事件格式变更，不再写入 `type: "summary", providerData.source: "pre-compact"`，改为 `type: "message", providerData.isCompactInternal=true + isSummary=true`。每次 compact 产生两条 message（摘要行 + "Please continue" 行），仅摘要行含 `isSummary=true`，避免重复计数。旧格式检测逻辑已移除。`Auto-Compact` 重命名为 `Compact`，因新格式下手动 `/compact` 同样被检测。CACHE_VERSION 升至 8。

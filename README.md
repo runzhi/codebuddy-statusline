@@ -57,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 | `Periodic×3` | Context 阶段摘要次数（灰色） |
 | `In:2.4M` | 输入 Token 数（自动缩写 K/M） |
 | `Out:10.7K` | 输出 Token 数 |
-| `Cache:2.2M` | 缓存命中 Token 数 |
+| `Cache:2.2M(74%)` | 缓存命中 Token 数及占总输入命中率 |
 | `Think:952` | 推理/思考 Token 数 |
 | `Req:29` | API 请求次数 |
 | `Cost:$0.69(¥4.83)` | 总费用（美元/人民币），总费用 = 平台 cost + credits/100 |

@@ -309,6 +309,14 @@ class TestBuildStatuslineConfig(unittest.TestCase):
         self.assertIn("| Periodic×1", out)
         self.assertNotIn("|  Periodic", out)
 
+    def test_cache_total_hit_rate(self):
+        # tokens 块的 Cache 显示总命中率，与第三行格式一致。
+        # _sample(): total_input=3200, total_cache_read=1500 -> int(1500/3200*100)=46%
+        self._write_config({})
+        inp, stats = self._sample()
+        out = re.sub(r'\033\[[0-9;]*m', '', build_statusline(inp, stats))
+        self.assertIn("Cache:1.5K(46%)", out)
+
 
 if __name__ == "__main__":
     unittest.main()
