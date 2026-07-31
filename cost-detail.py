@@ -101,13 +101,15 @@ def parse_transcript(transcript_path):
                     input_tokens = usage.get('inputTokens', 0) or 0
                     output_tokens = usage.get('outputTokens', 0) or 0
 
-                    cache_read = 0
-                    for detail in (usage.get('inputTokensDetails') or []):
-                        cache_read += detail.get('cached_tokens', 0) or 0
+                    cache_read = sum(
+                        detail.get('cached_tokens', 0) or 0
+                        for detail in (usage.get('inputTokensDetails') or [])
+                    )
 
-                    reasoning = 0
-                    for detail in (usage.get('outputTokensDetails') or []):
-                        reasoning += detail.get('reasoning_tokens', 0) or 0
+                    reasoning = sum(
+                        detail.get('reasoning_tokens', 0) or 0
+                        for detail in (usage.get('outputTokensDetails') or [])
+                    )
 
                     if raw_usage:
                         cache_read = raw_usage.get('prompt_cache_hit_tokens', cache_read) or cache_read

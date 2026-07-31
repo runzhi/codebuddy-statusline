@@ -161,6 +161,24 @@ def truncate_to_width(s, width, ellipsis='…'):
     return ''.join(out)
 
 
+def _read_tty_columns():
+    """Read terminal width from /dev/tty via TIOCGWINSZ; 0 when unavailable.
+
+    TIOCGWINSZ survives pipe redirection (the statusline runs through a
+    pipe) because /dev/tty refers to the controlling terminal regardless
+    of redirections.
+    """
+    try:
+        import fcntl
+        import termios
+        with open('/dev/tty', 'rb') as tty:
+            # TIOCGWINSZ: arg is a struct winsize (4 unsigned shorts)
+            buf = fcntl.ioctl(tty.fileno(), termios.TIOCGWINSZ, b'\x00' * 8)
+            return struct.unpack('HHHH', buf)[1]
+    except Exception:
+        return 0
+
+
 def _windows_columns():
     """Detect terminal width on Windows (statusline is invoked via pipe).
 
@@ -182,16 +200,9 @@ def _windows_columns():
       resize — unreliable for live width.
     """
     # 1. /dev/tty: works in Git Bash / MSYS2 even when statusline is piped
-    try:
-        with open('/dev/tty', 'rb') as tty:
-            import fcntl
-            import termios
-            buf = fcntl.ioctl(tty.fileno(), termios.TIOCGWINSZ, b'\x00' * 8)
-            cols = struct.unpack('HHHH', buf)[1]
-            if cols > 0:
-                return cols
-    except Exception:
-        pass
+    cols = _read_tty_columns()
+    if cols > 0:
+        return cols
 
     # 2. Windows Console API: GetConsoleScreenBufferInfo
     try:
@@ -263,35 +274,18 @@ def _tty_columns():
     """
     global _TTY_COLUMNS_CACHE
     cached, last = _TTY_COLUMNS_CACHE
-    # Cache both positive results and zero (no-TTY) results for ~1s.
-    # The previous `if cached and ...` skipped the cache when cached==0
-    # (no TTY), causing a re-read every cycle and a fresh timestamp write
-    # that broke the test asserting the tuple is unchanged.
+    # Cache both positive results and zero (no-TTY) results for ~1s so we
+    # don't re-read /dev/tty on every 300ms cycle.
     if (time.time() - last) < 1.0:
         return cached
 
-    cols = 0
     if sys.platform != 'win32':
-        try:
-            import fcntl
-            import termios
-            with open('/dev/tty', 'rb') as tty:
-                # TIOCGWINSZ: arg is a struct winsize (4 unsigned shorts)
-                buf = fcntl.ioctl(tty.fileno(), termios.TIOCGWINSZ, b'\x00' * 8)
-                cols = struct.unpack('HHHH', buf)[1]
-        except Exception:
-            cols = 0
+        cols = _read_tty_columns()
     else:
         cols = _windows_columns()
 
-    if cols > 0:
-        _TTY_COLUMNS_CACHE = (cols, time.time())
-        return cols
-
-    # Could not read real TTY — cache the failure briefly so we don't
-    # hammer the source, but return 0 so the caller knows it's unknown.
-    _TTY_COLUMNS_CACHE = (0, time.time())
-    return 0
+    _TTY_COLUMNS_CACHE = (cols, time.time())
+    return cols
 
 
 def get_statusline_width():

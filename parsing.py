@@ -24,6 +24,19 @@ from stats import (
 )
 
 
+# Tool name -> argument key used to build its one-line call summary.
+_SUMMARY_ARG_KEY = {
+    'Bash': 'command',
+    'Read': 'file_path',
+    'Edit': 'file_path',
+    'Write': 'file_path',
+    'Glob': 'pattern',
+    'Agent': 'description',
+    'WebFetch': 'url',
+    'WebSearch': 'query',
+}
+
+
 def _extract_call_summary(name, args):
     """Extract a short summary from a function_call's parsed arguments.
 
@@ -33,31 +46,22 @@ def _extract_call_summary(name, args):
     if not isinstance(args, dict) or not args:
         return name
 
-    # Tool-specific extraction
-    if name == 'Bash':
-        return args.get('command', '') or name
-    elif name in ('Read', 'Edit', 'Write'):
-        return args.get('file_path', '') or name
-    elif name == 'Grep':
+    key = _SUMMARY_ARG_KEY.get(name)
+    if key:
+        return args.get(key, '') or name
+
+    if name == 'Grep':
         pat = args.get('pattern', '')
         path = args.get('path', '')
         if pat or path:
             return f"{pat} {path}".strip()
         return name
-    elif name == 'Glob':
-        return args.get('pattern', '') or name
-    elif name == 'Agent':
-        return args.get('description', '') or name
-    elif name == 'WebFetch':
-        return args.get('url', '') or name
-    elif name == 'WebSearch':
-        return args.get('query', '') or name
-    else:
-        # Generic: first string value
-        for v in args.values():
-            if isinstance(v, str) and v:
-                return v
-        return name
+
+    # Generic: first string value
+    for v in args.values():
+        if isinstance(v, str) and v:
+            return v
+    return name
 
 
 def add_line_to_stats(stats, data):
@@ -77,9 +81,14 @@ def add_line_to_stats(stats, data):
                 summary = adt
             else:
                 args_raw = data.get('arguments', '')
-                try:
-                    args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw if isinstance(args_raw, dict) else {})
-                except (json.JSONDecodeError, TypeError):
+                if isinstance(args_raw, dict):
+                    args = args_raw
+                elif isinstance(args_raw, str):
+                    try:
+                        args = json.loads(args_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                else:
                     args = {}
                 summary = _extract_call_summary(name, args)
             stats["recent_calls"].append({"name": name, "summary": summary})
@@ -158,8 +167,7 @@ def add_line_to_stats(stats, data):
 def _read_transcript_delta(path, offset):
     """Read a transcript from *offset* and return (delta, new_offset, has_new).
 
-    A near-verbatim copy of the shared read loop used for both the main
-    transcript and sub-agent transcripts:
+    Shared read loop for both the main transcript and sub-agent transcripts:
       - fast path: if offset is at EOF (and > 0), nothing to read.
       - partial last line (mid-write): stop before it and report the offset
         of the incomplete line so the next cycle re-reads it.
@@ -233,15 +241,13 @@ def _merge_delta(stats, delta, is_main, previous_running_agents=0):
     last_* fields are "last value" not cumulative; they are overwritten only
     when the delta carries a non-zero value (i.e. a new API response).
     """
-    skip_keys = set()
-    if not is_main:
-        skip_keys = {"running_agents", "compact_count", "periodic_count"}
+    # Sub-agent transcripts contribute tokens/credits/tools only; these three
+    # counters are main-transcript-only. running_agents is merged after the
+    # loop because it needs the previous cached value.
+    skip_keys = {"running_agents"} if is_main else {"running_agents", "compact_count", "periodic_count"}
 
     for key in delta:
         if key in skip_keys:
-            continue
-        if key == "running_agents":
-            # main-only, handled after the loop
             continue
         if key in _LAST_KEYS:
             if delta[key]:
@@ -260,6 +266,28 @@ def _merge_delta(stats, delta, is_main, previous_running_agents=0):
 
     if is_main:
         stats["running_agents"] = max(0, delta["running_agents"] + previous_running_agents)
+
+
+def _sub_agent_transcripts(subagents_dir, sub_offsets):
+    """Yield (agent_key, path, offset) for each sub-agent transcript.
+
+    Shared by the truncation check and the parse loop in
+    parse_transcript_incremental. Cached offsets are validated here so a
+    corrupted cache value falls back to 0.
+    """
+    if not os.path.isdir(subagents_dir):
+        return
+    try:
+        for fname in os.listdir(subagents_dir):
+            if not fname.endswith('.jsonl'):
+                continue
+            agent_key = fname[:-6]
+            offset = sub_offsets.get(agent_key, 0)
+            if not isinstance(offset, (int, float)):
+                offset = 0
+            yield agent_key, os.path.join(subagents_dir, fname), offset
+    except OSError:
+        pass
 
 
 def parse_transcript_incremental(transcript_path, session_id):
@@ -315,10 +343,6 @@ def parse_transcript_incremental(transcript_path, session_id):
     any_new_data = False
     any_truncated = False
 
-    # Validate offset type to handle corrupted cache
-    if not isinstance(main_offset, (int, float)):
-        main_offset = 0
-
     # --- Check for truncation across all transcripts ---
     need_full_reparse = False
 
@@ -329,24 +353,15 @@ def parse_transcript_incremental(transcript_path, session_id):
     except (IOError, OSError):
         pass
 
-    if not need_full_reparse and os.path.isdir(subagents_dir):
-        try:
-            for fname in os.listdir(subagents_dir):
-                if not fname.endswith('.jsonl'):
-                    continue
-                agent_key = fname[:-6]
-                sub_offset = sub_offsets.get(agent_key, 0)
-                if not isinstance(sub_offset, (int, float)):
-                    sub_offset = 0
-                sub_path = os.path.join(subagents_dir, fname)
-                try:
-                    if sub_offset > os.path.getsize(sub_path):
-                        need_full_reparse = True
-                        break
-                except (IOError, OSError):
-                    pass
-        except OSError:
-            pass
+    if not need_full_reparse:
+        for agent_key, sub_path, sub_offset in _sub_agent_transcripts(
+                subagents_dir, sub_offsets):
+            try:
+                if sub_offset > os.path.getsize(sub_path):
+                    need_full_reparse = True
+                    break
+            except (IOError, OSError):
+                pass
 
     # --- Full re-parse: discard cache, parse everything from offset 0 ---
     if need_full_reparse:
@@ -370,27 +385,16 @@ def parse_transcript_incremental(transcript_path, session_id):
         main_offset = main_new_offset
 
     # --- Parse sub-agent transcripts ---
-    if os.path.isdir(subagents_dir):
-        try:
-            for fname in os.listdir(subagents_dir):
-                if not fname.endswith('.jsonl'):
-                    continue
-                agent_key = fname[:-6]
-                sub_path = os.path.join(subagents_dir, fname)
-                sub_offset = sub_offsets.get(agent_key, 0)
-                if not isinstance(sub_offset, (int, float)):
-                    sub_offset = 0
+    for agent_key, sub_path, sub_offset in _sub_agent_transcripts(
+            subagents_dir, sub_offsets):
+        sub_delta, sub_new_offset, sub_has_new = _read_transcript_delta(sub_path, sub_offset)
+        if sub_has_new:
+            any_new_data = True
 
-                sub_delta, sub_new_offset, sub_has_new = _read_transcript_delta(sub_path, sub_offset)
-                if sub_has_new:
-                    any_new_data = True
-
-                # Sub-agents contribute tokens/credits/tools but NOT
-                # running_agents/compact_count/periodic_count.
-                _merge_delta(stats, sub_delta, is_main=False)
-                sub_offsets[agent_key] = sub_new_offset
-        except OSError:
-            pass
+        # Sub-agents contribute tokens/credits/tools but NOT
+        # running_agents/compact_count/periodic_count.
+        _merge_delta(stats, sub_delta, is_main=False)
+        sub_offsets[agent_key] = sub_new_offset
 
     # Skip cache write when nothing changed and no truncation occurred.
     if any_new_data or any_truncated or cache is None:

@@ -88,7 +88,10 @@ def _move(layout, block, where, other=None):
                  f"'move {block} {where} model'")
         elif other not in order:
             # Referenced block absent -> fall back to end/front.
-            order.append(block) if where == "after" else order.insert(0, block)
+            if where == "after":
+                order.append(block)
+            else:
+                order.insert(0, block)
         else:
             idx = order.index(other)
             order.insert(idx + (1 if where == "after" else 0), block)

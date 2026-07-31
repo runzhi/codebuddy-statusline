@@ -134,6 +134,14 @@ def maybe_auto_update():
         pass
 
 
+def _remove_if_exists(path):
+    """Remove a file, ignoring OSError (best-effort cleanup)."""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 def cleanup_old_caches(current_session_id):
     """Remove cache files older than CACHE_MAX_AGE_DAYS, excluding current session."""
     if not os.path.isdir(CACHE_DIR):
@@ -145,10 +153,7 @@ def cleanup_old_caches(current_session_id):
             fpath = os.path.join(CACHE_DIR, fname)
             # Clean up stale .tmp files from interrupted atomic writes
             if fname.endswith('.tmp'):
-                try:
-                    os.remove(fpath)
-                except OSError:
-                    pass
+                _remove_if_exists(fpath)
                 continue
             if not fname.endswith('.json'):
                 continue
@@ -157,9 +162,10 @@ def cleanup_old_caches(current_session_id):
             if key == current_session_id:
                 continue
             try:
-                if now - os.path.getmtime(fpath) > max_age:
-                    os.remove(fpath)
+                is_old = now - os.path.getmtime(fpath) > max_age
             except OSError:
-                pass
+                continue
+            if is_old:
+                _remove_if_exists(fpath)
     except OSError:
         pass

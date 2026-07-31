@@ -110,7 +110,7 @@ def load_layout_config():
     try:
         with open(_config_path(), 'r') as f:
             data = json.load(f)
-    except (IOError, json.JSONDecodeError, ValueError):
+    except (IOError, ValueError):  # ValueError covers json.JSONDecodeError
         return None
     if not isinstance(data, dict):
         return None
@@ -193,10 +193,9 @@ def _render_context_bar(input_data, stats):
     used_pct = ctx.get('used_percentage')
     ctx_size = ctx.get('context_window_size', 0) or 0
     current_usage = ctx.get('current_usage')
-    current_tokens = (
-        current_usage.get('input_tokens', 0) or 0
-        if isinstance(current_usage, dict) else 0
-    )
+    current_tokens = 0
+    if isinstance(current_usage, dict):
+        current_tokens = current_usage.get('input_tokens', 0) or 0
     if used_pct is not None:
         try:
             pct = min(used_pct / 100.0, 1.0)
@@ -226,12 +225,12 @@ def _render_compact_periodic(input_data, stats):
     # used_percentage is null (e.g. first call right after compact).
     # Rendered as its own " | "-separated block (no leading space), so the
     # parts join cleanly whether only Compact, only Periodic, or both show.
-    cp = ""
+    parts = []
     if stats.get('compact_count', 0) > 0:
-        cp += f"{YELLOW}Compact×{stats['compact_count']}{NC}"
+        parts.append(f"{YELLOW}Compact×{stats['compact_count']}{NC}")
     if stats.get('periodic_count', 0) > 0:
-        cp += (" " if cp else "") + f"{DIM}Periodic×{stats['periodic_count']}{NC}"
-    return cp
+        parts.append(f"{DIM}Periodic×{stats['periodic_count']}{NC}")
+    return " ".join(parts)
 
 
 def _render_tokens(input_data, stats):
@@ -337,7 +336,6 @@ def _build_recent_parts(input_data, stats):
         recent_parts.append(recent_str)
 
     return recent_parts
-
 
 
 def _format_tool_entry(prefix, color, name, count=None):
