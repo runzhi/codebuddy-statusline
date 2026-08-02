@@ -45,6 +45,13 @@ class TestFormatCost(unittest.TestCase):
     def test_tiny(self):
         self.assertEqual(format_cost(0.005), "$0.01(¥0.04)")
 
+    def test_tiny_no_zero(self):
+        # Would round to 0.00 at 2 dp; must show more digits instead.
+        self.assertEqual(format_cost(0.0005), "$0.001(¥0.004)")
+
+    def test_tiny_no_zero_four_dp(self):
+        self.assertEqual(format_cost(0.00005), "$0.0001(¥0.0003)")
+
     def test_small(self):
         self.assertEqual(format_cost(0.05), "$0.05(¥0.35)")
 

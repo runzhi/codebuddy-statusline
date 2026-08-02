@@ -47,11 +47,19 @@ def format_tokens(n):
 
 
 def format_cost(usd):
-    """Format cost as $USD(¥CNY), both with 2 decimal places."""
+    """Format cost as $USD(¥CNY) with adaptive precision.
+
+    Uses 2 decimal places normally. Tiny costs that would round to
+    $0.00 (e.g. $0.0005) get more digits — up to 8 dp — so the amount
+    stays visible instead of showing 0.00.
+    """
     if usd is None or usd == 0:
         return ""
     cny = usd * USD_TO_CNY
-    return f"${usd:.2f}(¥{cny:.2f})"
+    places = 2
+    while places < 8 and round(usd, places) == 0:
+        places += 1
+    return f"${usd:.{places}f}(¥{cny:.{places}f})"
 
 
 def format_duration(ms):
