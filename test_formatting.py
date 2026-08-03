@@ -77,6 +77,15 @@ class TestFormatDuration(unittest.TestCase):
     def test_one_minute(self):
         self.assertEqual(format_duration(60000), "1m0s")
 
+    def test_one_hour(self):
+        self.assertEqual(format_duration(3600000), "1h0m0s")
+
+    def test_hours_minutes_seconds(self):
+        self.assertEqual(format_duration(3725000), "1h2m5s")
+
+    def test_exact_hours(self):
+        self.assertEqual(format_duration(7200000), "2h0m0s")
+
 class TestMakeProgressBar(unittest.TestCase):
     def test_zero(self):
         bar, color = make_progress_bar(0)

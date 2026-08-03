@@ -70,6 +70,10 @@ def format_duration(ms):
         return f"{s}s"
     m = s // 60
     s = s % 60
+    h = m // 60
+    m = m % 60
+    if h:
+        return f"{h}h{m}m{s}s"
     return f"{m}m{s}s"
 
 

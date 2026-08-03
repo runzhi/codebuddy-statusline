@@ -8,6 +8,7 @@
 
 ### 新增 (Added)
 
+- **Time 块支持小时显示**：会话时长超过 1 小时时 `Time:` 从 `123m45s` 变为 `2h3m45s`，与分钟档风格一致。
 - **tokens 块 Cache 显示总命中率**：第一行 Cache 从 `Cache:2.2M` 变为 `Cache:2.2M(74%)`（Cache/In 百分比，`int()` 向下截断），与第三行最近一次交互的格式对齐。纯展示改动，CACHE_VERSION 不变。
 
 ### 修复 (Fixed)
