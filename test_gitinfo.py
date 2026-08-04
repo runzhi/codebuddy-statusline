@@ -37,6 +37,18 @@ class TestGitInfo(unittest.TestCase):
             info = get_git_info(self.cwd)
         self.assertEqual(info, {"branch": "master", "dirty": False, "ahead": 0, "behind": 0})
 
+    def test_gone_upstream(self):
+        from unittest.mock import patch
+        with patch('gitinfo.subprocess.run', self._make_run("## main...origin/main [gone]\n")):
+            info = get_git_info(self.cwd)
+        self.assertEqual(info, {"branch": "main", "dirty": False, "ahead": 0, "behind": 0})
+
+    def test_gone_upstream_no_tracking_shown(self):
+        from unittest.mock import patch
+        with patch('gitinfo.subprocess.run', self._make_run("## main [gone]\n")):
+            info = get_git_info(self.cwd)
+        self.assertEqual(info, {"branch": "main", "dirty": False, "ahead": 0, "behind": 0})
+
     def test_dirty_branch(self):
         from unittest.mock import patch
         out = "## master...origin/master\n M file1.py\n?? new.py\n"

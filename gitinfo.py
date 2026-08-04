@@ -14,13 +14,14 @@ from formatting import CYAN, DIM, NC, PURPLE, RED
 #   ## master...origin/master
 #   ## master...origin/master [ahead 2]
 #   ## master...origin/master [ahead 2, behind 1]
+#   ## master...origin/master [gone]       # upstream branch deleted
 #   ## HEAD (no branch)
 _GIT_BRANCH_LINE_RE = re.compile(
     r'^## (?:'
     r'(?P<detached>HEAD \(no branch\))'
     r'|'
     r'(?P<branch>[^.\s]+)(?:\.\.\.[^\s]+)?'
-    r'(?: \[(?:ahead (?P<ahead>\d+))?(?:, )?(?:behind (?P<behind>\d+))?\])?'
+    r'(?: \[(?:gone|(?:ahead (?P<ahead>\d+))?(?:, )?(?:behind (?P<behind>\d+))?)\])?'
     r')$'
 )
 
