@@ -17,7 +17,7 @@ CodeBuddy Code 的 statusline 插件。stdin 接收状态 JSON → 增量解析 
 | `parsing.py` | transcript 增量解析：`parse_transcript_incremental`/`add_line_to_stats`/`_extract_call_summary`，共享 `_read_transcript_delta`/`_merge_delta`（主/sub 解析去重） |
 | `render.py` | 渲染：`format_tools`/`format_recent_calls`/`build_statusline`（三行装配） |
 | `cost-detail.py` | 按模型分组的详细报告 |
-| `test_*.py` | 按模块拆分的单元测试（共 206 用例）：`test_formatting`/`test_gitinfo`/`test_stats`/`test_parsing`/`test_render` + `test_statusline`（入口集成冒烟） |
+| `test_*.py` | 按模块拆分的单元测试（共 221 用例）：`test_formatting`/`test_gitinfo`/`test_stats`/`test_parsing`/`test_render` + `test_statusline`（入口集成冒烟） |
 | `install.sh`/`install.ps1` | 安装脚本（内外网双地址） |
 | `uninstall.sh`/`uninstall.ps1` | 卸载脚本 |
 | `commands/` | 斜杠命令定义 |
@@ -31,6 +31,7 @@ CodeBuddy 的 `StatusLineManager` 事件驱动 + 300ms 防抖。事件源：`ses
 ## 关键约束（改代码必看）
 
 - **null 安全**：`model`/`cost`/`context_window` 等字段可能是 `null`，统一用 `.get('key') or {}` 防护。
+- **模型元数据不全**：部分模型（如 hy4-dev）无最大上下文数据，`context_window_size=0` 且 `used_percentage` 为 `null`，但 `current_usage.input_tokens` 仍有值。此时 context_bar 回退显示当前用量（而非整块消失），不可把「无比例」当作「无数据」。
 - **`In` 含 `Cache`**：`inputTokens` 已包含缓存命中部分，两者是包含关系，不可相加。
 - **CACHE_VERSION**：修改 `new_stats()` 结构或计数逻辑时必须升级，强制旧缓存失效。改后检查：① 测试数量；② `cost-detail.py` 是否需同步。
 - **截断安全**：transcript 截断时丢弃所有缓存全量重解析，避免 double-counting；读到无换行的部分行时不推进 offset。

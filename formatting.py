@@ -56,10 +56,17 @@ def format_cost(usd):
     if usd is None or usd == 0:
         return ""
     cny = usd * USD_TO_CNY
+    sign = "-" if usd < 0 else ""
+    usd = abs(usd)
+    cny = abs(cny)
     places = 2
     while places < 8 and round(usd, places) == 0:
         places += 1
-    return f"${usd:.{places}f}(¥{cny:.{places}f})"
+    if round(usd, places) == 0:
+        # Below the display floor even at max precision: show an upper bound
+        # rather than a misleading $0.00.
+        return f"{sign}<${10 ** -places:.{places}f}"
+    return f"{sign}${usd:.{places}f}({sign}¥{cny:.{places}f})"
 
 
 def format_duration(ms):
@@ -111,13 +118,68 @@ def _char_width(ch):
     return 2 if eaw in ('W', 'F') else 1
 
 
+# Terminal width of a single character, memoized. The statusline truncates
+# long strings on every 300ms cycle against a small character set, so the
+# per-character east_asian_width() lookup is worth caching.
+_CHAR_WIDTH_CACHE = {}
+# Width of whole non-ASCII text segments, memoized for the same reason.
+_SEGMENT_WIDTH_CACHE = {}
+
+
+def _cached_char_width(ch):
+    w = _CHAR_WIDTH_CACHE.get(ch)
+    if w is None:
+        w = _CHAR_WIDTH_CACHE[ch] = _char_width(ch)
+    return w
+
+
+def _segment_width(seg):
+    """Terminal display width of an ANSI-free text segment.
+
+    ASCII dominates statusline output and every ASCII char is 1 column, so
+    pure-ASCII segments short-circuit to len(). Mixed segments are measured
+    per character, with the result memoized because the statusline rebuilds
+    the same strings on every 300ms cycle.
+    """
+    if seg.isascii():
+        return len(seg)
+    cached = _SEGMENT_WIDTH_CACHE.get(seg)
+    if cached is None:
+        cached = _SEGMENT_WIDTH_CACHE[seg] = sum(
+            _cached_char_width(ch) for ch in seg)
+    return cached
+
+
+def _tokenize_ansi(s):
+    """Split s into (is_escape, text) pairs, preserving ANSI sequences.
+
+    re.split() drops the delimiters, so escapes are located with finditer()
+    and the text between them taken by slicing. Every escape is yielded as
+    its own token so callers can copy it through verbatim (never split).
+    """
+    tokens = []
+    pos = 0
+    for m in _ANSI_RE.finditer(s):
+        if m.start() > pos:
+            tokens.append((False, s[pos:m.start()]))
+        tokens.append((True, m.group(0)))
+        pos = m.end()
+    if pos < len(s):
+        tokens.append((False, s[pos:]))
+    return tokens
+
+
 def _visible_len(s):
     """Return the terminal display width of s, excluding ANSI escapes.
 
     CJK and other East-Asian wide characters (width category W or F)
     count as 2 columns, matching how most terminals render them.
     """
-    return sum(_char_width(ch) for ch in _ANSI_RE.sub('', s))
+    return sum(
+        _segment_width(text)
+        for is_escape, text in _tokenize_ansi(s)
+        if not is_escape
+    )
 
 
 def truncate_to_width(s, width, ellipsis='…'):
@@ -142,31 +204,50 @@ def truncate_to_width(s, width, ellipsis='…'):
     budget = width - ellipsis_w
     if budget <= 0:
         return ellipsis[:width]
+
+    # Tokenize once into text / ANSI-escape runs. Escapes cost zero visible
+    # columns, so only text tokens consume budget.
+    tokens = _tokenize_ansi(s)
+
     out = []
     visible = 0
     sgr_open = False  # tracked to re-close before the ellipsis
-    i = 0
-    while i < len(s) and visible < budget:
-        m = _ANSI_RE.match(s, i)
-        if m:
-            seq = m.group(0)
-            out.append(seq)
-            # SGR codes end with 'm'; a bare reset clears any open style.
-            if seq.endswith('m') and seq != '\033[0m':
+    done = False
+
+    for is_escape, seg in tokens:
+        if done:
+            # Budget is spent: later escapes belong to content that was cut,
+            # so drop them. Emitting them would (a) open a color that never
+            # renders and (b) keep codes the caller expects to be gone.
+            continue
+
+        if is_escape:
+            # ANSI escape: never split, costs no visible width.
+            out.append(seg)
+            if seg.endswith('m') and seg != '\033[0m':
                 sgr_open = True
-            elif seq == '\033[0m':
+            elif seg == '\033[0m':
                 sgr_open = False
-            i = m.end()
-        else:
-            ch = s[i]
-            cw = _char_width(ch)
-            # If adding this wide char would exceed the budget, stop
-            # before it rather than breaking mid-character.
+            continue
+
+        seg_w = _segment_width(seg)
+        if visible + seg_w <= budget:
+            out.append(seg)
+            visible += seg_w
+            if visible >= budget:
+                done = True
+            continue
+
+        # This text run overflows: take as many characters as fit.
+        # Wide characters are never split mid-character.
+        for ch in seg:
+            cw = _cached_char_width(ch)
             if visible + cw > budget:
+                done = True
                 break
             out.append(ch)
-            i += 1
             visible += cw
+
     if sgr_open:
         out.append('\033[0m')
     out.append(ellipsis)

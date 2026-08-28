@@ -91,8 +91,12 @@ def add_line_to_stats(stats, data):
                 else:
                     args = {}
                 summary = _extract_call_summary(name, args)
-            stats["recent_calls"].append({"name": name, "summary": summary})
-            stats["recent_calls"] = stats["recent_calls"][-RECENT_CALLS_MAX:]
+            recent = stats["recent_calls"]
+            recent.append({"name": name, "summary": summary})
+            # Trim only when over the cap; re-slicing on every append copies
+            # the list for each recorded call.
+            if len(recent) > RECENT_CALLS_MAX:
+                del recent[:-RECENT_CALLS_MAX]
 
     elif entry_type == 'function_call_result' and data.get('name') == 'Agent':
         stats["running_agents"] -= 1

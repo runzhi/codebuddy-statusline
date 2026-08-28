@@ -18,6 +18,7 @@ from render import (
     _display_dir_name,
     _format_tool_entry,
     _render_cwd_git,
+    _render_context_bar,
 )
 
 class TestFormatTools(unittest.TestCase):
@@ -316,6 +317,83 @@ class TestBuildStatuslineConfig(unittest.TestCase):
         inp, stats = self._sample()
         out = re.sub(r'\033\[[0-9;]*m', '', build_statusline(inp, stats))
         self.assertIn("Cache:1.5K(46%)", out)
+
+
+class TestRenderContextBar(unittest.TestCase):
+    """Context bar fallbacks when model metadata is incomplete.
+
+    Models without max-context metadata (e.g. hy4-dev) report
+    context_window_size=0 / used_percentage=null while still reporting
+    current_usage.input_tokens. The block must still show something.
+    """
+
+    def _call(self, ctx):
+        return re.sub(r'\033\[[0-9;]*m', '',
+                      _render_context_bar({"context_window": ctx}, {}))
+
+    def test_no_max_context_shows_current_usage(self):
+        # hy4-dev case: no context_window_size, no used_percentage,
+        # but current_usage.input_tokens is present.
+        out = self._call({"used_percentage": None, "context_window_size": 0,
+                          "current_usage": {"input_tokens": 45678}})
+        self.assertEqual(out, "45.7K")
+
+    def test_no_max_context_with_used_percentage(self):
+        # used_percentage present but no max size: bar + pct + raw usage.
+        out = self._call({"used_percentage": 25, "context_window_size": 0,
+                          "current_usage": {"input_tokens": 45678}})
+        self.assertIn("25%", out)
+        self.assertIn("45.7K", out)
+        self.assertIn("▕", out)
+
+    def test_max_context_no_percentage_shows_both(self):
+        # No percentage, but max size known: show current/max.
+        out = self._call({"used_percentage": None, "context_window_size": 200000,
+                          "current_usage": {"input_tokens": 25000}})
+        self.assertIn("25.0K", out)
+        self.assertIn("Max:200.0K", out)
+
+    def test_max_context_only_unchanged(self):
+        # Pre-existing behavior: max known, no current usage -> "Max:" only.
+        out = self._call({"used_percentage": None, "context_window_size": 200000,
+                          "current_usage": None})
+        self.assertEqual(out, "Max:200.0K")
+
+    def test_full_data_shows_used_over_max(self):
+        out = self._call({"used_percentage": 12.5, "context_window_size": 200000,
+                          "current_usage": {"input_tokens": 25000}})
+        # 12.5% -> round() gives 12 (banker's rounding), not 13.
+        self.assertIn("12%", out)
+        self.assertIn("25.0K/200.0K", out)
+
+    def test_empty_context_window_renders_nothing(self):
+        # Nothing to show at all -> block suppressed (not a stray separator).
+        self.assertEqual(self._call({}), "")
+        self.assertEqual(self._call({"used_percentage": None,
+                                     "context_window_size": 0,
+                                     "current_usage": {}}), "")
+
+    def test_zero_tokens_renders_nothing(self):
+        # input_tokens=0 means "not reported", not "empty context".
+        self.assertEqual(self._call({"used_percentage": None,
+                                     "context_window_size": 0,
+                                     "current_usage": {"input_tokens": 0}}), "")
+
+    def test_null_context_window_renders_nothing(self):
+        self.assertEqual(_render_context_bar({"context_window": None}, {}), "")
+
+    def test_non_numeric_used_percentage_falls_back(self):
+        # A malformed host payload must not crash the statusline: treat a
+        # non-numeric used_percentage as absent and fall through.
+        out = self._call({"used_percentage": "abc", "context_window_size": 0,
+                          "current_usage": {"input_tokens": 5000}})
+        self.assertEqual(out, "5.0K")
+
+    def test_non_numeric_used_percentage_with_max(self):
+        out = self._call({"used_percentage": "abc", "context_window_size": 200000,
+                          "current_usage": {"input_tokens": 5000}})
+        self.assertIn("5.0K", out)
+        self.assertIn("Max:200.0K", out)
 
 
 if __name__ == "__main__":

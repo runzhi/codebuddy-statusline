@@ -196,27 +196,47 @@ def _render_context_bar(input_data, stats):
     current_tokens = 0
     if isinstance(current_usage, dict):
         current_tokens = current_usage.get('input_tokens', 0) or 0
+    # A malformed host payload may send a non-numeric used_percentage; treat
+    # it as "no percentage" and fall through to the size/usage fallbacks
+    # rather than raising (the statusline must never blank out).
     if used_pct is not None:
         try:
-            pct = min(used_pct / 100.0, 1.0)
+            used_pct = used_pct / 100.0
         except (TypeError, ValueError):
-            pct = None
-        if pct is not None:
-            bar, bar_color = make_progress_bar(pct, width=10)
-            pct_display = round(pct * 100)
-            if ctx_size > 0 and current_tokens > 0:
-                ctx_str = f"{format_tokens(current_tokens)}/{format_tokens(ctx_size)}"
-            elif ctx_size > 0:
-                ctx_str = format_tokens(ctx_size)
-            else:
-                ctx_str = ""
-            ctx_part = f"{bar_color}▕{bar}▏{NC}{DIM}{pct_display}%{NC}"
-            if ctx_str:
-                ctx_part += f" {DIM}{ctx_str}{NC}"
-            return ctx_part
+            used_pct = None
+    if used_pct is not None:
+        # used_percentage is now the 0-1 ratio; clamp so a >100 value
+        # (possible mid-compaction) cannot overflow the bar.
+        pct = min(used_pct, 1.0)
+        bar, bar_color = make_progress_bar(pct, width=10)
+        pct_display = round(pct * 100)
+        if ctx_size > 0 and current_tokens > 0:
+            ctx_str = f"{format_tokens(current_tokens)}/{format_tokens(ctx_size)}"
+        elif ctx_size > 0:
+            ctx_str = format_tokens(ctx_size)
+        elif current_tokens > 0:
+            # No max-context metadata (e.g. hy4-dev): show the current
+            # usage alone rather than dropping the block entirely.
+            ctx_str = format_tokens(current_tokens)
+        else:
+            ctx_str = ""
+        ctx_part = f"{bar_color}▕{bar}▏{NC}{DIM}{pct_display}%{NC}"
+        if ctx_str:
+            ctx_part += f" {DIM}{ctx_str}{NC}"
+        return ctx_part
     if ctx_size > 0:
-        # No percentage data, but we still have max context size
+        # No percentage data, but we still have max context size.
+        # Show current usage too when available, so the block stays useful
+        # instead of rendering only the ceiling.
+        if current_tokens > 0:
+            return (f"{DIM}{format_tokens(current_tokens)}{NC}"
+                    f"/{DIM}Max:{format_tokens(ctx_size)}{NC}")
         return f"{DIM}Max:{format_tokens(ctx_size)}{NC}"
+    if current_tokens > 0:
+        # Neither percentage nor max context (model has no context_window
+        # metadata): fall back to the raw current context size, which is
+        # still reported in current_usage.input_tokens.
+        return f"{DIM}{format_tokens(current_tokens)}{NC}"
     return ""
 
 

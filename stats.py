@@ -29,9 +29,6 @@ UPDATE_MARKER = os.path.join(CACHE_DIR, ".last-update-check")
 UPDATE_INTERVAL_SECONDS = 86400  # once per day
 
 RECENT_CALLS_MAX = 3
-# Stats fields that hold the "last value" rather than a cumulative total;
-# during incremental merges they are overwritten (not summed).
-_LAST_KEYS = ("last_input", "last_output", "last_cache_read", "last_credits", "last_cost")
 
 
 def new_stats():
@@ -53,6 +50,14 @@ def new_stats():
         "last_credits": 0.0,
         "last_cost": 0.0,
     }
+
+
+# Stats fields holding the "last value" rather than a cumulative total; during
+# incremental merges they are overwritten, not summed. Derived from new_stats()
+# so a newly added last_* field is picked up automatically — hardcoding this
+# list silently mis-merged (summed instead of overwrote) any field left out.
+_LAST_KEYS = tuple(k for k in new_stats() if k.startswith("last_"))
+assert _LAST_KEYS, "no last_* fields found in new_stats() — merge semantics broke"
 
 
 def load_cache(session_id):
