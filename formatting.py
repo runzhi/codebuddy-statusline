@@ -143,7 +143,9 @@ def _segment_width(seg):
     per character, with the result memoized because the statusline rebuilds
     the same strings on every 300ms cycle.
     """
-    if seg.isascii():
+    # str.isascii() is Python 3.7+; max(seg) <= '\x7f' is the 3.6-compatible
+    # equivalent (str comparison is by code point).
+    if not seg or max(seg) <= '\x7f':
         return len(seg)
     cached = _SEGMENT_WIDTH_CACHE.get(seg)
     if cached is None:
