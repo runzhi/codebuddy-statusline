@@ -208,7 +208,7 @@ def _render_context_bar(input_data, stats):
         # used_percentage is now the 0-1 ratio; clamp so a >100 value
         # (possible mid-compaction) cannot overflow the bar.
         pct = min(used_pct, 1.0)
-        bar, bar_color = make_progress_bar(pct, width=10)
+        bar, _ = make_progress_bar(pct, width=10)
         pct_display = round(pct * 100)
         if ctx_size > 0 and current_tokens > 0:
             ctx_str = f"{format_tokens(current_tokens)}/{format_tokens(ctx_size)}"
@@ -220,7 +220,7 @@ def _render_context_bar(input_data, stats):
             ctx_str = format_tokens(current_tokens)
         else:
             ctx_str = ""
-        ctx_part = f"{bar_color}▕{bar}▏{NC}{DIM}{pct_display}%{NC}"
+        ctx_part = f"▕{bar} {DIM}{pct_display}%{NC}"
         if ctx_str:
             ctx_part += f" {DIM}{ctx_str}{NC}"
         return ctx_part

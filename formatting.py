@@ -85,22 +85,20 @@ def format_duration(ms):
 
 
 def make_progress_bar(pct, width=10):
-    """Make a Unicode progress bar with color based on usage."""
-    filled = int(pct * width)
-    partial_idx = int((pct * width - filled) * 8)
+    """Make a Unicode progress bar with color based on usage.
 
-    if filled >= width:
-        bar = '█' * width
-    elif filled > 0:
-        bar = '█' * filled
-        partial_chars = ' ▏▎▍▌▋▊▉█'
-        if partial_idx > 0:
-            bar += partial_chars[min(partial_idx, 7)]
-            bar += ' ' * (width - filled - 1)
-        else:
-            bar += ' ' * (width - filled)
-    else:
-        bar = ' ' * width
+    Returns (bar, color). *bar* is already colored: the filled portion in
+    *color*, the empty portion dimmed — the '░' fill already reads as a
+    track, so tinting it too just adds noise.
+
+    Whole cells only, no eighth-block partials: with '░' drawing the track,
+    a partial cell next to it reads as noise rather than extra precision.
+
+    The empty portion is drawn with '░', not spaces: the host renders the
+    statusline through a word-wrapping text box that splits on whitespace
+    and rejoins with a single space, so space padding would collapse.
+    """
+    filled = min(int(pct * width), width)
 
     if pct < 0.5:
         color = GREEN
@@ -109,6 +107,10 @@ def make_progress_bar(pct, width=10):
     else:
         color = RED
 
+    bar = f"{color}{'█' * filled}{NC}" if filled else ""
+    empty = width - filled
+    if empty:
+        bar += f"{DIM}{'░' * empty}{NC}"
     return bar, color
 
 

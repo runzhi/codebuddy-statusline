@@ -37,6 +37,7 @@ CodeBuddy 的 `StatusLineManager` 事件驱动 + 300ms 防抖。事件源：`ses
 - **截断安全**：transcript 截断时丢弃所有缓存全量重解析，避免 double-counting；读到无换行的部分行时不推进 offset。
 - **subprocess 两处用途**：`get_git_info()` 同步 fork（渲染用，不缓存保证实时）；`maybe_auto_update()` 后台异步（更新插件自身，每天一次）。不可混用。
 - **截断显示内容**：用 `truncate_to_width`（CJK/ANSI 安全），禁止 `len()` + 切片。
+- **禁止用连续空格对齐/填充**：host 的 `TextWrapBox` 按 `/\S+/` 分词后以单空格重排，连续空格会被折叠成一个（进度条因此只剩 1 格宽）。需要占位时用可见字符，如进度条空槽用 `░`。
 - **脚本注入防护**：install/uninstall 脚本统一用临时文件 + `sys.argv` 传参，保持一致。
 - **git 分支解析**：`_GIT_BRANCH_LINE_RE` 解析 `git status --porcelain=v1 --branch` 第一行，新增分支格式需更新正则。
 

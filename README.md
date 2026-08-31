@@ -51,7 +51,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 | 字段 | 说明 |
 |------|------|
 | `GLM-5.1` | 当前模型名称 |
-| `▕████▍     ▏44%` | Context 进度条（绿 < 50%，黄 < 80%，红 >= 80%） |
+| `▕████░░░░░░ 44%` | Context 进度条，10 格整格填充，已用部分着色（绿 < 50%，黄 < 80%，红 >= 80%），`░` 为暗色空槽 |
 | `56.7K/128.0K` | 当前 Context 用量 / 窗口上限 |
 | `45.7K` | 仅当前 Context 用量（部分模型无窗口上限元数据，如 hy4-dev） |
 | `Compact×2` | Context 压缩次数，含自动和手动（黄色） |

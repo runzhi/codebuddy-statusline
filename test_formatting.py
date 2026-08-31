@@ -10,7 +10,7 @@ import formatting
 from formatting import (
     format_tokens, format_cost, format_duration, make_progress_bar,
     truncate_to_width, get_statusline_width, get_statusline_width_from_input,
-    _tty_columns, _windows_columns, _visible_len,
+    _tty_columns, _windows_columns, _visible_len, _ANSI_RE,
 )
 
 class TestFormatTokens(unittest.TestCase):
@@ -86,14 +86,42 @@ class TestFormatDuration(unittest.TestCase):
     def test_exact_hours(self):
         self.assertEqual(format_duration(7200000), "2h0m0s")
 
+def _visible(bar):
+    """Strip ANSI from a pre-colored bar so tests can assert on glyphs."""
+    return _ANSI_RE.sub('', bar)
+
+
 class TestMakeProgressBar(unittest.TestCase):
     def test_zero(self):
         bar, color = make_progress_bar(0)
-        self.assertEqual(bar, ' ' * 10)
+        self.assertEqual(_visible(bar), '░' * 10)
+
+    def test_empty_portion_is_not_whitespace(self):
+        # The host's statusline renderer splits text on whitespace and
+        # rejoins with a single space, so space padding would collapse.
+        for pct in (0, 0.15, 0.44, 0.99):
+            text = _visible(make_progress_bar(pct)[0])
+            self.assertEqual(len(text), 10)
+            self.assertNotIn(' ', text)
 
     def test_full(self):
         bar, color = make_progress_bar(1.0)
-        self.assertEqual(bar, '█' * 10)
+        self.assertEqual(_visible(bar), '█' * 10)
+
+    def test_whole_cells_only(self):
+        # No eighth-block partials: with '░' drawing the track, a partial
+        # cell next to it reads as noise rather than extra precision.
+        for pct in (0.05, 0.15, 0.34, 0.44, 0.99):
+            text = _visible(make_progress_bar(pct)[0])
+            self.assertEqual(set(text) - {'█', '░'}, set())
+            self.assertEqual(text.count('█'), int(pct * 10))
+
+    def test_empty_portion_is_dimmed(self):
+        # The '░' track already reads as a track; it must not be tinted.
+        bar, color = make_progress_bar(0.15)
+        self.assertTrue(bar.startswith(color))
+        self.assertIn(f"{formatting.DIM}░", bar)
+        self.assertNotIn(f"{color}░", bar)
 
     def test_half_color_green(self):
         _, color = make_progress_bar(0.3)
