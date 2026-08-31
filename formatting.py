@@ -98,7 +98,12 @@ def make_progress_bar(pct, width=10):
     statusline through a word-wrapping text box that splits on whitespace
     and rejoins with a single space, so space padding would collapse.
     """
-    filled = min(int(pct * width), width)
+    filled = int(pct * width)
+    if pct > 0 and filled == 0:
+        # Any nonzero usage gets at least one filled cell, so a tiny
+        # percentage doesn't render as an all-empty track.
+        filled = 1
+    filled = min(filled, width)
 
     if pct < 0.5:
         color = GREEN

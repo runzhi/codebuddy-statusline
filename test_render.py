@@ -344,14 +344,15 @@ class TestRenderContextBar(unittest.TestCase):
                           "current_usage": {"input_tokens": 45678}})
         self.assertIn("25%", out)
         self.assertIn("45.7K", out)
-        self.assertIn("▕", out)
+        self.assertIn("█", out)
 
-    def test_bar_has_no_closing_border(self):
-        # '░' carries the track through to the end, so the closing '▏' that
-        # used to terminate the bar would just add noise.
+    def test_bar_has_no_borders(self):
+        # '░' carries the track through to the end, so no opening '▕' or
+        # closing '▏' borders are drawn around the bar.
         out = self._call({"used_percentage": 34, "context_window_size": 200000,
                           "current_usage": {"input_tokens": 68000}})
-        self.assertIn("▕", out)
+        self.assertIn("█", out)
+        self.assertNotIn("▕", out)
         self.assertNotIn("▏", out)
 
     def test_max_context_no_percentage_shows_both(self):

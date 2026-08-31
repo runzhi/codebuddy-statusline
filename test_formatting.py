@@ -111,10 +111,11 @@ class TestMakeProgressBar(unittest.TestCase):
     def test_whole_cells_only(self):
         # No eighth-block partials: with '░' drawing the track, a partial
         # cell next to it reads as noise rather than extra precision.
+        # A nonzero percentage always shows at least one filled cell.
         for pct in (0.05, 0.15, 0.34, 0.44, 0.99):
             text = _visible(make_progress_bar(pct)[0])
             self.assertEqual(set(text) - {'█', '░'}, set())
-            self.assertEqual(text.count('█'), int(pct * 10))
+            self.assertEqual(text.count('█'), max(1, int(pct * 10)))
 
     def test_empty_portion_is_dimmed(self):
         # The '░' track already reads as a track; it must not be tinted.

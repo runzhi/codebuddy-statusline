@@ -220,7 +220,7 @@ def _render_context_bar(input_data, stats):
             ctx_str = format_tokens(current_tokens)
         else:
             ctx_str = ""
-        ctx_part = f"▕{bar} {DIM}{pct_display}%{NC}"
+        ctx_part = f"{bar} {DIM}{pct_display}%{NC}"
         if ctx_str:
             ctx_part += f" {DIM}{ctx_str}{NC}"
         return ctx_part

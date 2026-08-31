@@ -15,7 +15,7 @@ import json
 import sys
 
 # Fix Windows GBK encoding: stdout defaults to GBK on Chinese Windows,
-# which cannot encode Unicode chars like ✓, █, ▕, × used in the output.
+# which cannot encode Unicode chars like ✓, █, × used in the output.
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
