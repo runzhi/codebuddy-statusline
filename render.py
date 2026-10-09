@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rendering: tool lists, recent calls, and the 3-line statusline assembly.
 
-build_statusline(input_data, stats) assembles the full three-line output
+build_statusline(input_data, stats_dict) assembles the full three-line output
 that statusline.py's main() previously built inline. Keeping it here keeps
 the entry point a thin orchestrator and groups all presentation logic.
 """
@@ -166,7 +166,7 @@ def resolve_layout(cfg):
 # Each returns the finished, colored string for its block, or "" when the
 # block has nothing to show.
 
-def _render_cwd_git(input_data, stats):
+def _render_cwd_git(input_data, stats_dict):
     workspace = input_data.get('workspace') or {}
     git_cwd = workspace.get('current_dir') or os.getcwd()
     cwd_name = _display_dir_name(git_cwd)
@@ -180,13 +180,13 @@ def _render_cwd_git(input_data, stats):
     return " ".join(parts)
 
 
-def _render_model(input_data, stats):
+def _render_model(input_data, stats_dict):
     model = input_data.get('model') or {}
     model_name = model.get('display_name', '')
     return f"{BLUE}{model_name}{NC}" if model_name else ""
 
 
-def _render_context_bar(input_data, stats):
+def _render_context_bar(input_data, stats_dict):
     # used_percentage is always 0-100 (host computes it as
     # Math.round(ratio * 1e4) / 100). Convert to a 0-1 ratio for the bar.
     ctx = input_data.get('context_window') or {}
@@ -195,7 +195,15 @@ def _render_context_bar(input_data, stats):
     current_usage = ctx.get('current_usage')
     current_tokens = 0
     if isinstance(current_usage, dict):
-        current_tokens = current_usage.get('input_tokens', 0) or 0
+        # The live context length is the sum of the non-overlapping parts of
+        # the latest request (plain input + cache write + cache read), per the
+        # host schema. input_tokens alone excludes cached tokens, so for a
+        # cache-heavy session it can be 0 even though the window is 4% full.
+        current_tokens = (
+            (current_usage.get('input_tokens', 0) or 0)
+            + (current_usage.get('cache_creation_input_tokens', 0) or 0)
+            + (current_usage.get('cache_read_input_tokens', 0) or 0)
+        )
     # A malformed host payload may send a non-numeric used_percentage; treat
     # it as "no percentage" and fall through to the size/usage fallbacks
     # rather than raising (the statusline must never blank out).
@@ -210,6 +218,11 @@ def _render_context_bar(input_data, stats):
         pct = min(used_pct, 1.0)
         bar, _ = make_progress_bar(pct, width=10)
         pct_display = round(pct * 100)
+        # Some models report the window size and percentage but omit
+        # current_usage.input_tokens. Derive the used count from the ratio so
+        # the block still reads `used/total` instead of only the ceiling.
+        if current_tokens <= 0 and ctx_size > 0:
+            current_tokens = int(round(pct * ctx_size))
         if ctx_size > 0 and current_tokens > 0:
             ctx_str = f"{format_tokens(current_tokens)}/{format_tokens(ctx_size)}"
         elif ctx_size > 0:
@@ -240,27 +253,27 @@ def _render_context_bar(input_data, stats):
     return ""
 
 
-def _render_compact_periodic(input_data, stats):
+def _render_compact_periodic(input_data, stats_dict):
     # Compact/Periodic counts: always show when present, even if
     # used_percentage is null (e.g. first call right after compact).
     # Rendered as its own " | "-separated block (no leading space), so the
     # parts join cleanly whether only Compact, only Periodic, or both show.
     parts = []
-    if stats.get('compact_count', 0) > 0:
-        parts.append(f"{YELLOW}Compact×{stats['compact_count']}{NC}")
-    if stats.get('periodic_count', 0) > 0:
-        parts.append(f"{DIM}Periodic×{stats['periodic_count']}{NC}")
+    if stats_dict.get('compact_count', 0) > 0:
+        parts.append(f"{YELLOW}Compact×{stats_dict['compact_count']}{NC}")
+    if stats_dict.get('periodic_count', 0) > 0:
+        parts.append(f"{DIM}Periodic×{stats_dict['periodic_count']}{NC}")
     return " ".join(parts)
 
 
-def _render_tokens(input_data, stats):
+def _render_tokens(input_data, stats_dict):
     # In/Out come from transcript parsing (main + sub-agents),
     # falling back to CodeBuddy's context_window values if transcript has no data.
     # Cache/Think have no context_window fallback — they only come from transcript parsing.
     ctx = input_data.get('context_window') or {}
-    display_in = stats.get('total_input', 0) or ctx.get('total_input_tokens') or 0
-    display_out = stats.get('total_output', 0) or ctx.get('total_output_tokens') or 0
-    display_cache = stats.get('total_cache_read', 0)
+    display_in = stats_dict.get('total_input', 0) or ctx.get('total_input_tokens') or 0
+    display_out = stats_dict.get('total_output', 0) or ctx.get('total_output_tokens') or 0
+    display_cache = stats_dict.get('total_cache_read', 0)
 
     token_parts = [
         f"{GREEN}In:{NC}{format_tokens(display_in)}",
@@ -269,36 +282,36 @@ def _render_tokens(input_data, stats):
     if display_cache > 0:
         cache_pct = int(display_cache / display_in * 100) if display_in > 0 else 0
         token_parts.append(f"{DIM}Cache:{NC}{format_tokens(display_cache)}({cache_pct}%)")
-    if stats.get('total_reasoning', 0) > 0:
-        token_parts.append(f"{DIM}Think:{NC}{format_tokens(stats['total_reasoning'])}")
+    if stats_dict.get('total_reasoning', 0) > 0:
+        token_parts.append(f"{DIM}Think:{NC}{format_tokens(stats_dict['total_reasoning'])}")
     return " ".join(token_parts)
 
 
-def _render_requests(input_data, stats):
-    n = stats.get('request_count', 0) or 0
+def _render_requests(input_data, stats_dict):
+    n = stats_dict.get('request_count', 0) or 0
     return f"{CYAN}Req:{NC}{n}" if n > 0 else ""
 
 
-def _render_cost(input_data, stats):
+def _render_cost(input_data, stats_dict):
     cost = input_data.get('cost') or {}
     total_cost = cost.get('total_cost_usd', 0) or 0
-    credits_usd = (stats.get('total_credits', 0) or 0) * CREDITS_TO_USD
+    credits_usd = (stats_dict.get('total_credits', 0) or 0) * CREDITS_TO_USD
     cost_str = format_cost(total_cost + credits_usd)
     return f"{RED}Cost:{NC}{cost_str}" if cost_str else ""
 
 
-def _render_credits(input_data, stats):
-    c = stats.get('total_credits', 0) or 0
+def _render_credits(input_data, stats_dict):
+    c = stats_dict.get('total_credits', 0) or 0
     return f"{YELLOW}Credits:{NC}{c:.2f}" if c > 0 else ""
 
 
-def _render_time(input_data, stats):
+def _render_time(input_data, stats_dict):
     cost = input_data.get('cost') or {}
     duration_str = format_duration(cost.get('total_duration_ms', 0) or 0)
     return f"{DIM}Time:{NC}{duration_str}" if duration_str else ""
 
 
-def _render_lines(input_data, stats):
+def _render_lines(input_data, stats_dict):
     cost = input_data.get('cost') or {}
     added = cost.get('total_lines_added', 0) or 0
     removed = cost.get('total_lines_removed', 0) or 0
@@ -324,16 +337,16 @@ RENDERERS = {
 BLOCKS_LINE1 = list(RENDERERS.keys())
 
 
-def _build_recent_parts(input_data, stats):
+def _build_recent_parts(input_data, stats_dict):
     """Build line 3's Recent content (last-interaction detail + recent calls)."""
     recent_parts = []
 
     # 最近一次交互的 In/Out/Cache/Credits/Cost 详情
-    last_in = stats.get('last_input', 0) or 0
-    last_out = stats.get('last_output', 0) or 0
-    last_cache = stats.get('last_cache_read', 0) or 0
-    last_credits = stats.get('last_credits', 0) or 0
-    last_cost = stats.get('last_cost', 0) or 0
+    last_in = stats_dict.get('last_input', 0) or 0
+    last_out = stats_dict.get('last_output', 0) or 0
+    last_cache = stats_dict.get('last_cache_read', 0) or 0
+    last_credits = stats_dict.get('last_credits', 0) or 0
+    last_cost = stats_dict.get('last_cost', 0) or 0
     if last_in > 0 or last_out > 0:
         last_parts = [
             f"{GREEN}In:{NC}{format_tokens(last_in)}",
@@ -351,7 +364,7 @@ def _build_recent_parts(input_data, stats):
         recent_parts.append(" ".join(last_parts))
 
     # Recent function calls with truncated content
-    recent_str = format_recent_calls(stats.get('recent_calls', []))
+    recent_str = format_recent_calls(stats_dict.get('recent_calls', []))
     if recent_str:
         recent_parts.append(recent_str)
 
@@ -424,7 +437,7 @@ def format_recent_calls(recent_calls):
     return " | ".join(parts)
 
 
-def build_statusline(input_data, stats):
+def build_statusline(input_data, stats_dict):
     """Assemble the full three-line statusline output from the parsed stats.
 
     Returns the string to print (already truncated to terminal width).
@@ -443,20 +456,20 @@ def build_statusline(input_data, stats):
         renderer = RENDERERS.get(bid)
         if renderer is None:
             continue
-        block = renderer(input_data, stats)
+        block = renderer(input_data, stats_dict)
         if block:
             parts.append(block)
     output = " | ".join(parts)
 
     # Line 2: Tools (with Agent running/completed status)
     if layout["tools"]:
-        tool_str = format_tools(stats.get('tool_counts', {}), stats.get('running_agents', 0))
+        tool_str = format_tools(stats_dict.get('tool_counts', {}), stats_dict.get('running_agents', 0))
         if tool_str:
             output += f"\n{DIM}Tools:{NC} {tool_str}"
 
     # Line 3: Last interaction token details + Recent function calls
     if layout["recent"]:
-        recent_parts = _build_recent_parts(input_data, stats)
+        recent_parts = _build_recent_parts(input_data, stats_dict)
         if recent_parts:
             output += f"\n{DIM}Recent:{NC} {' | '.join(recent_parts)}"
 

@@ -10,11 +10,21 @@
 
 - **Time 块支持小时显示**：会话时长超过 1 小时时 `Time:` 从 `123m45s` 变为 `2h3m45s`，与分钟档风格一致。
 - **tokens 块 Cache 显示总命中率**：第一行 Cache 从 `Cache:2.2M` 变为 `Cache:2.2M(74%)`（Cache/In 百分比，`int()` 向下截断），与第三行最近一次交互的格式对齐。纯展示改动，CACHE_VERSION 不变。
+- **无最大上下文元数据时回退显示当前用量**：部分模型（如 hy4-dev）没有最大上下文数据，`context_window_size=0` 且 `used_percentage` 为 null，此前 context_bar 整块消失。现在回退显示 `current_usage.input_tokens` 的当前用量，把「无比例」和「无数据」区分开。
 
 ### 修复 (Fixed)
 
+- **缓存命中高时会话上下文只显示总量**：`current_usage.input_tokens` 仅是最新请求中**未命中缓存**的输入部分，缓存写入/读取分别记在 `cache_creation_input_tokens`/`cache_read_input_tokens`。缓存命中高（如 88%）的会话里 `input_tokens` 可能为 0，此前 context_bar 只读它，导致已用部分被吞、只剩 `1.0M`。现在按官方 schema 将三段相加得到真实上下文长度（`input + cache_creation + cache_read`），恢复 `40.0K/1.0M`；三段全缺失但已知窗口大小与百分比时，仍按 `百分比 × 窗口大小` 兜底推导。
 - **Compact 检测适配新格式**：CodeBuddy 的 compact 事件格式变更，不再写入 `type: "summary", providerData.source: "pre-compact"`，改为 `type: "message", providerData.isCompactInternal=true + isSummary=true`。每次 compact 产生两条 message（摘要行 + "Please continue" 行），仅摘要行含 `isSummary=true`，避免重复计数。旧格式检测逻辑已移除。`Auto-Compact` 重命名为 `Compact`，因新格式下手动 `/compact` 同样被检测。CACHE_VERSION 升至 8。
 - **Compact/Periodic 计数在 compact 后首次调用时消失**：compact 后 `used_percentage` 可能为 null（CodeBuddy 尚未重算 context_window），而 Compact×N 和 Periodic×M 被嵌套在进度条条件分支内导致不渲染。修复为将两者移至条件分支外，始终显示。
+- **上游分支已删除（`[gone]`）导致 git 块整体消失**：`git status --porcelain=v1 --branch` 在远程分支被删除后输出 `## main...origin/main [gone]`，旧正则匹配失败返回 None，整个 git 块不再渲染。现在正确解析该状态。
+- **极小费用显示为 $0.00**：非零费用在 2 位小数下四舍五入为 0 时自动提高精度（最多 8 位），如 `$0.0005` 显示为 `$0.001(¥0.004)`；仍低于显示下限时输出 `<` 上界而非误导性的 $0.00。
+- **进度条极小占用显示成全空**：非 0 百分比至少填充 1 格；同时改用整格填充（取消八分之一块的部分格）与暗色空槽 `░`，移除左侧边框 `▕`。
+
+### 变更 (Changed)
+
+- **解析层每轮系统调用减半**：截断检测由「预检一次 + 读取再一次」两次 `getsize` 合并为读取时检测一次；子 Agent 列表由生成器改为一次性物化，`os.listdir` 由 2 次降为 1 次，`new_stats()` 构造次数减少。20 个子 Agent 场景下稳态解析 0.19ms → 0.13ms，每轮 `getsize` 由 2N+2 降为 N+1。行为语义（截断重解析、偏移推进、缓存跳过写）不变，新增 2 个子 Agent 截断用例锁定。
+- **`render.py` 渲染函数参数改名 `stats` → `stats_dict`**：不再遮蔽 `import stats` 模块（`_config_path()` 仍需 `stats._PLUGIN_DATA`）。纯内部改动，无用户可见影响。
 
 ### 移除 (Removed)
 

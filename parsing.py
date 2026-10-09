@@ -169,9 +169,11 @@ def add_line_to_stats(stats, data):
 
 
 def _read_transcript_delta(path, offset):
-    """Read a transcript from *offset* and return (delta, new_offset, has_new).
+    """Read a transcript from *offset*; return (delta, new_offset, has_new, truncated).
 
     Shared read loop for both the main transcript and sub-agent transcripts:
+      - truncation: an offset past EOF means the file shrank (rewritten), so
+        report it and let the caller re-parse everything from 0.
       - fast path: if offset is at EOF (and > 0), nothing to read.
       - partial last line (mid-write): stop before it and report the offset
         of the incomplete line so the next cycle re-reads it.
@@ -183,9 +185,14 @@ def _read_transcript_delta(path, offset):
     try:
         file_size = os.path.getsize(path)
     except (IOError, OSError):
-        return new_stats(), offset, False
+        return new_stats(), offset, False, False
+    if offset > file_size:
+        # Cached offset is past EOF. The caller cannot subtract the removed
+        # lines' per-transcript contributions, so it must discard the cached
+        # stats and re-read this transcript from 0.
+        return new_stats(), offset, False, True
     if offset == file_size and offset > 0:
-        return new_stats(), offset, False
+        return new_stats(), offset, False, False
 
     delta = new_stats()
     has_new_data = False
@@ -227,11 +234,11 @@ def _read_transcript_delta(path, offset):
                     continue
             new_offset = failed_line_offset if failed_line_offset is not None else f.tell()
     except (IOError, OSError):
-        return new_stats(), offset, False
+        return new_stats(), offset, False, False
 
     if not has_new_data:
-        return new_stats(), offset, False
-    return delta, new_offset, True
+        return new_stats(), offset, False, False
+    return delta, new_offset, True, False
 
 
 def _merge_delta(stats, delta, is_main, previous_running_agents=0):
@@ -273,14 +280,16 @@ def _merge_delta(stats, delta, is_main, previous_running_agents=0):
 
 
 def _sub_agent_transcripts(subagents_dir, sub_offsets):
-    """Yield (agent_key, path, offset) for each sub-agent transcript.
+    """Return [(agent_key, path, offset)] for each sub-agent transcript.
 
-    Shared by the truncation check and the parse loop in
-    parse_transcript_incremental. Cached offsets are validated here so a
-    corrupted cache value falls back to 0.
+    Materialized as a list (not a generator) because the caller needs the
+    same set twice — once for the offsets bookkeeping, once for the read
+    loop — and a generator would list the directory twice. Cached offsets
+    are validated here so a corrupted cache value falls back to 0.
     """
+    entries = []
     if not os.path.isdir(subagents_dir):
-        return
+        return entries
     try:
         for fname in os.listdir(subagents_dir):
             if not fname.endswith('.jsonl'):
@@ -289,9 +298,44 @@ def _sub_agent_transcripts(subagents_dir, sub_offsets):
             offset = sub_offsets.get(agent_key, 0)
             if not isinstance(offset, (int, float)):
                 offset = 0
-            yield agent_key, os.path.join(subagents_dir, fname), offset
+            entries.append((agent_key, os.path.join(subagents_dir, fname), offset))
     except OSError:
         pass
+    return entries
+
+
+def _collect_deltas(transcript_path, subs, main_offset, stats, previous_running_agents):
+    """Read main + sub-agent transcripts from their offsets and merge into *stats*.
+
+    *subs* is the materialized list from _sub_agent_transcripts.
+
+    Returns (any_new, truncated, main_offset, sub_offsets). When *truncated*
+    is True nothing has been merged, so the caller discards *stats* and
+    calls this again with every offset at 0 — the first pass is then free of
+    double-counting by construction.
+    """
+    main_delta, main_new_offset, main_has_new, truncated = _read_transcript_delta(
+        transcript_path, main_offset)
+    if truncated:
+        return False, True, main_offset, {}
+    any_new = main_has_new
+    _merge_delta(stats, main_delta, is_main=True,
+                 previous_running_agents=previous_running_agents)
+
+    sub_offsets = {}
+    for agent_key, sub_path, sub_offset in subs:
+        sub_delta, sub_new_offset, sub_has_new, sub_truncated = _read_transcript_delta(
+            sub_path, sub_offset)
+        if sub_truncated:
+            return False, True, main_offset, {}
+        sub_offsets[agent_key] = sub_new_offset
+        if sub_has_new:
+            any_new = True
+        # Sub-agents contribute tokens/credits/tools but NOT
+        # running_agents/compact_count/periodic_count.
+        _merge_delta(stats, sub_delta, is_main=False)
+
+    return any_new, False, main_new_offset, sub_offsets
 
 
 def parse_transcript_incremental(transcript_path, session_id):
@@ -302,9 +346,11 @@ def parse_transcript_incremental(transcript_path, session_id):
     running_agents, compact_count, or periodic_count (those are main-transcript-only).
 
     Skip-write: if no new data was found, skip writing the cache entirely.
-    Truncation handling: if any transcript was truncated, discard all cached
-    stats and re-parse everything from scratch. This avoids double-counting
-    when we can't subtract old per-sub-agent contributions.
+    Truncation handling: truncation is detected while reading (a cached offset
+    past EOF), which is also the only getsize each transcript needs. If any
+    transcript was truncated, discard all cached stats and re-parse everything
+    from scratch. This avoids double-counting when we can't subtract old
+    per-sub-agent contributions.
     """
     stats = new_stats()
 
@@ -326,8 +372,9 @@ def parse_transcript_incremental(transcript_path, session_id):
         if "stats" in cache and isinstance(cache["stats"], dict):
             stats = cache["stats"]
             # Backfill new fields and remove obsolete keys for same-version caches
-            valid_keys = set(new_stats().keys())
-            for key, default in new_stats().items():
+            defaults = new_stats()
+            valid_keys = set(defaults)
+            for key, default in defaults.items():
                 if key not in stats:
                     if isinstance(default, list):
                         stats[key] = list(default)
@@ -344,61 +391,18 @@ def parse_transcript_incremental(transcript_path, session_id):
         if "sub_offsets" in cache and isinstance(cache["sub_offsets"], dict):
             sub_offsets = cache["sub_offsets"]
 
-    any_new_data = False
-    any_truncated = False
+    # Materialize the sub-agent list once; it drives both passes below.
+    subs = _sub_agent_transcripts(subagents_dir, sub_offsets)
 
-    # --- Check for truncation across all transcripts ---
-    need_full_reparse = False
-
-    try:
-        file_size = os.path.getsize(transcript_path)
-        if main_offset > file_size:
-            need_full_reparse = True
-    except (IOError, OSError):
-        pass
-
-    if not need_full_reparse:
-        for agent_key, sub_path, sub_offset in _sub_agent_transcripts(
-                subagents_dir, sub_offsets):
-            try:
-                if sub_offset > os.path.getsize(sub_path):
-                    need_full_reparse = True
-                    break
-            except (IOError, OSError):
-                pass
+    any_new_data, any_truncated, main_offset, sub_offsets = _collect_deltas(
+        transcript_path, subs, main_offset, stats, previous_running_agents)
 
     # --- Full re-parse: discard cache, parse everything from offset 0 ---
-    if need_full_reparse:
-        any_truncated = True
-        main_offset = 0
-        sub_offsets = {}
+    if any_truncated:
         stats = new_stats()
-        previous_running_agents = 0
-
-    # --- Parse main transcript ---
-    main_delta, main_new_offset, main_has_new = _read_transcript_delta(transcript_path, main_offset)
-    if main_has_new:
-        any_new_data = True
-    if need_full_reparse:
-        # Stats were reset; delta IS the new stats
-        stats = main_delta
-        stats["running_agents"] = max(0, stats["running_agents"])
-    else:
-        _merge_delta(stats, main_delta, is_main=True, previous_running_agents=previous_running_agents)
-    if main_new_offset > 0:
-        main_offset = main_new_offset
-
-    # --- Parse sub-agent transcripts ---
-    for agent_key, sub_path, sub_offset in _sub_agent_transcripts(
-            subagents_dir, sub_offsets):
-        sub_delta, sub_new_offset, sub_has_new = _read_transcript_delta(sub_path, sub_offset)
-        if sub_has_new:
-            any_new_data = True
-
-        # Sub-agents contribute tokens/credits/tools but NOT
-        # running_agents/compact_count/periodic_count.
-        _merge_delta(stats, sub_delta, is_main=False)
-        sub_offsets[agent_key] = sub_new_offset
+        subs = [(agent_key, path, 0) for agent_key, path, _ in subs]
+        any_new_data, _, main_offset, sub_offsets = _collect_deltas(
+            transcript_path, subs, 0, stats, 0)
 
     # Skip cache write when nothing changed and no truncation occurred.
     if any_new_data or any_truncated or cache is None:

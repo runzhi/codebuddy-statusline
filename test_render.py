@@ -375,6 +375,25 @@ class TestRenderContextBar(unittest.TestCase):
         self.assertIn("12%", out)
         self.assertIn("25.0K/200.0K", out)
 
+    def test_cache_heavy_usage_sums_all_parts(self):
+        # Cache-heavy session: input_tokens is the non-cached part and can be
+        # 0; the context length is the sum of input + cache_creation + cache_read.
+        out = self._call({"used_percentage": 4, "context_window_size": 1_000_000,
+                          "current_usage": {"input_tokens": 0,
+                                            "cache_creation_input_tokens": 2000,
+                                            "cache_read_input_tokens": 38000}})
+        self.assertIn("4%", out)
+        self.assertIn("40.0K/1.0M", out)
+
+    def test_size_and_pct_without_usage_shows_used_over_max(self):
+        # Model reports window size + percentage but omits
+        # current_usage.input_tokens: derive used count so the block reads
+        # `used/total` instead of only the ceiling.
+        out = self._call({"used_percentage": 4, "context_window_size": 1_000_000,
+                          "current_usage": None})
+        self.assertIn("4%", out)
+        self.assertIn("40.0K/1.0M", out)
+
     def test_empty_context_window_renders_nothing(self):
         # Nothing to show at all -> block suppressed (not a stray separator).
         self.assertEqual(self._call({}), "")

@@ -581,6 +581,74 @@ class TestIncrementalParsing(unittest.TestCase):
         self.assertEqual(stats2["total_input"], 500)
         self.assertEqual(stats2["tool_counts"]["Bash"], 1)  # unchanged
 
+    def test_subagent_truncation_resets_stats(self):
+        """A rewritten (shorter) sub-agent transcript forces a full re-parse."""
+        session_dir = os.path.join(self.tmpdir, "trunc-sub-sess")
+        subagents_dir = os.path.join(session_dir, "subagents")
+        os.makedirs(subagents_dir)
+        transcript_path = os.path.join(self.tmpdir, "trunc-sub-sess.jsonl")
+        sub_path = os.path.join(subagents_dir, "agent-trunc.jsonl")
+
+        with open(transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+        with open(sub_path, 'w') as f:
+            f.write(json.dumps({
+                'type': 'message',
+                'providerData': {'usage': {'inputTokens': 500, 'outputTokens': 100}},
+            }) + '\n')
+            f.write(json.dumps({'type': 'function_call', 'name': 'Read'}) + '\n')
+
+        stats1 = parse_transcript_incremental(transcript_path, "trunc-sub-sess")
+        self.assertEqual(stats1["total_input"], 500)
+        self.assertEqual(stats1["tool_counts"]["Read"], 1)
+
+        # Rewrite the sub-agent transcript shorter: its cached offset now
+        # points past EOF, so every transcript must be re-parsed from 0.
+        with open(sub_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Glob'}) + '\n')
+
+        stats2, was_truncated = _parse_transcript_incremental(
+            transcript_path, "trunc-sub-sess")
+        self.assertTrue(was_truncated)
+        # Sub-agent reflects the rewritten content...
+        self.assertEqual(stats2["tool_counts"]["Glob"], 1)
+        self.assertNotIn("Read", stats2["tool_counts"])
+        self.assertEqual(stats2["total_input"], 0)
+        # ...and the main transcript is re-parsed exactly once.
+        self.assertEqual(stats2["tool_counts"]["Bash"], 1)
+
+    def test_subagent_truncation_does_not_double_count_main(self):
+        """Sub-agent truncation with concurrent main-transcript growth."""
+        session_dir = os.path.join(self.tmpdir, "trunc-mix-sess")
+        subagents_dir = os.path.join(session_dir, "subagents")
+        os.makedirs(subagents_dir)
+        transcript_path = os.path.join(self.tmpdir, "trunc-mix-sess.jsonl")
+        sub_path = os.path.join(subagents_dir, "agent-mix.jsonl")
+
+        with open(transcript_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+        with open(sub_path, 'w') as f:
+            f.write(json.dumps({
+                'type': 'message',
+                'providerData': {'usage': {'inputTokens': 300, 'outputTokens': 50}},
+            }) + '\n')
+
+        stats1 = parse_transcript_incremental(transcript_path, "trunc-mix-sess")
+        self.assertEqual(stats1["total_input"], 300)
+        self.assertEqual(stats1["tool_counts"]["Bash"], 1)
+
+        # Main grows in the same cycle the sub-agent is rewritten shorter.
+        with open(transcript_path, 'a') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Bash'}) + '\n')
+        with open(sub_path, 'w') as f:
+            f.write(json.dumps({'type': 'function_call', 'name': 'Grep'}) + '\n')
+
+        stats2 = parse_transcript_incremental(transcript_path, "trunc-mix-sess")
+        # Main re-parsed from 0 exactly once: two Bash calls, not three or four.
+        self.assertEqual(stats2["tool_counts"]["Bash"], 2)
+        self.assertEqual(stats2["tool_counts"]["Grep"], 1)
+        self.assertEqual(stats2["total_input"], 0)  # dropped with the rewrite
+
     def test_no_writes_in_steady_state(self):
         self._write_lines([
             {'type': 'function_call', 'name': 'Bash'},
