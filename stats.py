@@ -19,7 +19,7 @@ _CONFIG_DIR = os.environ.get('CODEBUDDY_CONFIG_DIR', '') or os.path.expanduser("
 _PLUGIN_DATA = os.path.join(_CONFIG_DIR, "plugins/data/statusline")
 CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
-CACHE_VERSION = 9
+CACHE_VERSION = 8
 
 # PLUGIN_DIR is the directory this script lives in (the git-clone install dir).
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
