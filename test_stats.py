@@ -13,6 +13,7 @@ import unittest.mock
 import stats
 from stats import (
     new_stats, load_cache, save_cache, cleanup_old_caches, maybe_auto_update,
+    load_rate_snapshot, update_rate_snapshot,
     CACHE_DIR, CACHE_VERSION,
 )
 
@@ -61,6 +62,83 @@ class TestCacheOperations(unittest.TestCase):
         with open(cache_path, 'w') as f:
             f.write("not valid json")
         self.assertIsNone(load_cache("sess1"))
+
+
+class TestRateSnapshot(unittest.TestCase):
+    """Rate sidecar: Δoutput ÷ Δhost API time across renders.
+
+    The host's cumulative API time is the only clock. It can be absent on a
+    render, or jump between CostService instances, so it is high-water-marked
+    and the baseline is only advanced when a sample is actually produced.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self._orig_cache_dir = stats.CACHE_DIR
+        stats.CACHE_DIR = self.tmpdir
+
+    def tearDown(self):
+        stats.CACHE_DIR = self._orig_cache_dir
+        shutil.rmtree(self.tmpdir)
+
+    def test_first_call_baselines(self):
+        self.assertIsNone(update_rate_snapshot("s1", 1000, 5000))
+        snap = load_rate_snapshot("s1")
+        self.assertEqual(snap["output"], 1000)
+        self.assertIsNone(snap["rate"])
+
+    def test_rate_from_deltas(self):
+        update_rate_snapshot("s1", 1000, 5000)
+        # +2000 tokens over +10s of API time -> 200 t/s
+        self.assertAlmostEqual(update_rate_snapshot("s1", 3000, 15000), 200.0)
+
+    def test_zero_output_writes_no_baseline(self):
+        self.assertIsNone(update_rate_snapshot("s1", 0, 0))
+        self.assertIsNone(load_rate_snapshot("s1"))
+
+    def test_missing_api_time_writes_no_baseline(self):
+        # Host omitted the field this render; recording a 0 baseline would
+        # make the next call diff against 0.
+        self.assertIsNone(update_rate_snapshot("s1", 1000, 0))
+        self.assertIsNone(load_rate_snapshot("s1"))
+
+    def test_increment_accumulates_across_uneven_renders(self):
+        # Regression for "Speed never appears": output and API time advance
+        # on different renders. The baseline must hold until both moved.
+        update_rate_snapshot("s1", 1000, 5000)
+        self.assertIsNone(update_rate_snapshot("s1", 1000, 9000))  # only API
+        # +1000 tokens over the accumulated +4000 ms -> 250 t/s
+        self.assertAlmostEqual(update_rate_snapshot("s1", 2000, 9000), 250.0)
+
+    def test_no_new_sample_keeps_rate_and_baseline(self):
+        update_rate_snapshot("s1", 1000, 5000)
+        update_rate_snapshot("s1", 3000, 15000)  # -> 200.0
+        self.assertAlmostEqual(update_rate_snapshot("s1", 3000, 15000), 200.0)
+        # Baseline must not advance, or the pending deltas reset forever.
+        self.assertEqual(load_rate_snapshot("s1")["api_ms"], 15000)
+
+    def test_host_clock_high_water_mark(self):
+        # A smaller host total (different CostService instance) must never
+        # shrink the accumulated duration.
+        update_rate_snapshot("s1", 1000, 50000)
+        self.assertIsNone(update_rate_snapshot("s1", 2000, 10000))  # jumped down
+        self.assertEqual(load_rate_snapshot("s1")["api_ms"], 50000)
+        # +1000 tokens over +10s on top of the watermark -> 100 t/s
+        self.assertAlmostEqual(update_rate_snapshot("s1", 2000, 60000), 100.0)
+
+    def test_output_reset_rebaselines(self):
+        update_rate_snapshot("s1", 5000, 5000)
+        self.assertIsNone(update_rate_snapshot("s1", 100, 9000))
+        self.assertIsNone(load_rate_snapshot("s1")["rate"])
+
+    def test_preupgrade_sidecar_rebaselines(self):
+        # A sidecar from the previous format is discarded rather than diffed.
+        with open(os.path.join(self.tmpdir, "s1.rate.json"), "w") as f:
+            json.dump({"output": 114768, "api_ms": 955081,
+                       "usage_ts": 1791808322200, "eff_ms": 1791809046021,
+                       "rate": 2.247}, f)
+        self.assertIsNone(update_rate_snapshot("s1", 114768, 955081))
+        self.assertEqual(load_rate_snapshot("s1")["v"], 2)
 
 class TestCleanupOldCaches(unittest.TestCase):
     def setUp(self):

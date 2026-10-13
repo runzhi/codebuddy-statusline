@@ -15,10 +15,12 @@ from render import (
     format_recent_calls,
     format_tools,
     resolve_layout,
+    _build_recent_parts,
     _display_dir_name,
     _format_tool_entry,
     _render_cwd_git,
     _render_context_bar,
+    _render_speed,
 )
 
 class TestFormatTools(unittest.TestCase):
@@ -249,6 +251,7 @@ class TestBuildStatuslineConfig(unittest.TestCase):
         inp = {
             "model": {"display_name": "claude-sonnet"},
             "cost": {"total_cost_usd": 0.02, "total_duration_ms": 65000,
+                     "total_api_duration_ms": 40000,
                      "total_lines_added": 3, "total_lines_removed": 1},
             "context_window": {"used_percentage": 12.5, "context_window_size": 200000,
                               "current_usage": {"input_tokens": 25000}},
@@ -271,6 +274,8 @@ class TestBuildStatuslineConfig(unittest.TestCase):
         self.assertIn("claude-sonnet", out)
         # cost value is contiguous (no ANSI inside format_cost output)
         self.assertIn("$0.02(¥0.14)", out)
+        # 800 output tokens / 40s API time -> 20.0 t/s
+        self.assertIn("20.0t/s", out)
         self.assertIn("Tools:", out)
         self.assertIn("Recent:", out)
 
@@ -422,6 +427,72 @@ class TestRenderContextBar(unittest.TestCase):
                           "current_usage": {"input_tokens": 5000}})
         self.assertIn("5.0K", out)
         self.assertIn("Max:200.0K", out)
+
+
+class TestRenderSpeed(unittest.TestCase):
+    """Session-average throughput = total_output / cost.total_api_duration_ms.
+
+    The denominator must be the host's pure API time, never the wall-clock
+    total_duration_ms (tool runs and idle waits would deflate the rate).
+    Shown as `Avg:`; the recent delta is the line-3 `Speed:` item.
+    """
+
+    def _call(self, inp, st):
+        return re.sub(r'\033\[[0-9;]*m', '', _render_speed(inp, st))
+
+    def test_rate(self):
+        # 4000 tokens over 40s of API time -> 100.0 t/s
+        inp = {"cost": {"total_api_duration_ms": 40000}}
+        self.assertEqual(self._call(inp, {"total_output": 4000}), "Avg:100.0t/s")
+
+    def test_uses_api_duration_not_wall_clock(self):
+        # Same tokens, 40s API vs 200s wall -> must report 100.0, not 20.0.
+        inp = {"cost": {"total_api_duration_ms": 40000,
+                        "total_duration_ms": 200000}}
+        self.assertIn("Avg:100.0t/s", self._call(inp, {"total_output": 4000}))
+
+    def test_zero_api_duration_suppressed(self):
+        inp = {"cost": {"total_api_duration_ms": 0}}
+        self.assertEqual(self._call(inp, {"total_output": 4000}), "")
+
+    def test_zero_output_suppressed(self):
+        inp = {"cost": {"total_api_duration_ms": 4000}}
+        self.assertEqual(self._call(inp, {"total_output": 0}), "")
+
+    def test_missing_cost_suppressed(self):
+        self.assertEqual(self._call({}, {"total_output": 100}), "")
+
+    def test_null_cost_suppressed(self):
+        self.assertEqual(self._call({"cost": None}, {"total_output": 100}), "")
+
+    def test_wall_clock_only_suppressed(self):
+        # Only total_duration_ms present: must not fall back to it.
+        inp = {"cost": {"total_duration_ms": 30000}}
+        self.assertEqual(self._call(inp, {"total_output": 100}), "")
+
+    def test_null_api_duration_suppressed(self):
+        inp = {"cost": {"total_api_duration_ms": None}}
+        self.assertEqual(self._call(inp, {"total_output": 100}), "")
+
+
+class TestRecentRate(unittest.TestCase):
+    """Line-3 `Speed:` shows the recent delta rate passed in by the entry point."""
+
+    def _plain(self, parts):
+        return re.sub(r'\033\[[0-9;]*m', '', " ".join(parts))
+
+    def test_recent_rate_appended(self):
+        st = {"last_input": 1000, "last_output": 200}
+        self.assertIn("Speed:12.3t/s", self._plain(_build_recent_parts({}, st, 12.3)))
+
+    def test_none_omitted(self):
+        st = {"last_input": 1000, "last_output": 200}
+        self.assertNotIn("Speed:", self._plain(_build_recent_parts({}, st, None)))
+
+    def test_zero_rate_shown(self):
+        # A measured 0.0 t/s is still a measurement (not None) -> render it.
+        st = {"last_input": 1000, "last_output": 200}
+        self.assertIn("Speed:0.0t/s", self._plain(_build_recent_parts({}, st, 0.0)))
 
 
 if __name__ == "__main__":

@@ -40,8 +40,24 @@ def main():
     # Incremental parse for all metrics from main + sub-agent transcripts
     stats_dict, _ = parsing.parse_transcript_incremental(transcript_path, session_id)
 
+    # Recent output rate (tokens/s), from the delta between renders. Uses the
+    # host's cumulative API time (an end-to-end request duration, so network
+    # time is included). See stats.update_rate_snapshot. The Avg block reads
+    # `cost.total_api_duration_ms` as-is and is left unmodified.
+    recent_rate = None
+    if session_id:
+        try:
+            cost = input_data.get('cost') or {}
+            recent_rate = stats.update_rate_snapshot(
+                session_id,
+                stats_dict.get('total_output', 0) or 0,
+                cost.get('total_api_duration_ms', 0) or 0,
+            )
+        except Exception:
+            recent_rate = None
+
     # Assemble and print the three-line statusline
-    print(render.build_statusline(input_data, stats_dict))
+    print(render.build_statusline(input_data, stats_dict, recent_rate))
 
     # Auto-update (git-clone mode only, at most once per day, runs detached).
     try:

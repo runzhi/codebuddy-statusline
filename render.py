@@ -17,6 +17,7 @@ from formatting import (
     DIM,
     GREEN,
     NC,
+    PURPLE,
     RED,
     YELLOW,
     format_cost,
@@ -311,6 +312,29 @@ def _render_time(input_data, stats_dict):
     return f"{DIM}Time:{NC}{duration_str}" if duration_str else ""
 
 
+def _render_speed(input_data, stats_dict):
+    """Session-average output throughput, in tokens per second.
+
+    Numerator is total output tokens (main + sub-agent transcripts).
+    Denominator is cost.total_api_duration_ms — the *pure model* time the
+    host tracks — NOT cost.total_duration_ms, which is wall-clock and
+    includes tool execution and idle waiting; dividing by it would badly
+    understate the rate. Labelled "Avg" because it averages the whole
+    session; the line-3 "Speed" item is the recent delta instead.
+
+    Caveat: total_api_duration_ms is host-side and may not include
+    sub-agent API time, while total_output does. So a sub-agent-heavy run
+    can read slightly high. It is still the closest available denominator.
+    """
+    cost = input_data.get('cost') or {}
+    api_ms = cost.get('total_api_duration_ms', 0) or 0
+    out = stats_dict.get('total_output', 0) or 0
+    if api_ms <= 0 or out <= 0:
+        return ""
+    rate = out / (api_ms / 1000.0)
+    return f"{PURPLE}Avg:{NC}{rate:.1f}t/s"
+
+
 def _render_lines(input_data, stats_dict):
     cost = input_data.get('cost') or {}
     added = cost.get('total_lines_added', 0) or 0
@@ -330,6 +354,7 @@ RENDERERS = {
     "cost": _render_cost,
     "credits": _render_credits,
     "time": _render_time,
+    "speed": _render_speed,
     "lines": _render_lines,
 }
 
@@ -337,8 +362,12 @@ RENDERERS = {
 BLOCKS_LINE1 = list(RENDERERS.keys())
 
 
-def _build_recent_parts(input_data, stats_dict):
-    """Build line 3's Recent content (last-interaction detail + recent calls)."""
+def _build_recent_parts(input_data, stats_dict, recent_rate=None):
+    """Build line 3's Recent content (last-interaction detail + recent calls).
+
+    *recent_rate* is the recent output rate (tokens/s) computed by the entry
+    point from the delta between invocations; None when not yet measurable.
+    """
     recent_parts = []
 
     # 最近一次交互的 In/Out/Cache/Credits/Cost 详情
@@ -361,6 +390,8 @@ def _build_recent_parts(input_data, stats_dict):
             last_parts.append(f"{RED}Cost:{NC}{last_cost_str}")
         if last_credits > 0:
             last_parts.append(f"{YELLOW}Credits:{NC}{last_credits:.2f}")
+        if recent_rate is not None:
+            last_parts.append(f"{PURPLE}Speed:{NC}{recent_rate:.1f}t/s")
         recent_parts.append(" ".join(last_parts))
 
     # Recent function calls with truncated content
@@ -437,11 +468,15 @@ def format_recent_calls(recent_calls):
     return " | ".join(parts)
 
 
-def build_statusline(input_data, stats_dict):
+def build_statusline(input_data, stats_dict, recent_rate=None):
     """Assemble the full three-line statusline output from the parsed stats.
 
     Returns the string to print (already truncated to terminal width).
     Null-safe: model/cost/context_window fields may be missing.
+
+    *recent_rate* (tokens/s, or None) is the delta-based recent throughput
+    shown on line 3; the entry point computes it because it needs the
+    previous invocation's counters.
 
     The layout (which blocks show, their order, and whether the Tools/Recent
     lines are enabled) comes from the plugin config; see load_layout_config /
@@ -469,7 +504,7 @@ def build_statusline(input_data, stats_dict):
 
     # Line 3: Last interaction token details + Recent function calls
     if layout["recent"]:
-        recent_parts = _build_recent_parts(input_data, stats_dict)
+        recent_parts = _build_recent_parts(input_data, stats_dict, recent_rate)
         if recent_parts:
             output += f"\n{DIM}Recent:{NC} {' | '.join(recent_parts)}"
 

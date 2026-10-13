@@ -9,10 +9,21 @@ import shutil
 import unittest
 
 class TestMainNullSafety(unittest.TestCase):
-    """Regression tests: CodeBuddy may send null for model/cost/context_window."""
+    """Regression tests: CodeBuddy may send null for model/cost/context_window.
+
+    Each run gets a throwaway CODEBUDDY_CONFIG_DIR so these integration tests
+    never write into the real cache/rate sidecar under ~/.codebuddy.
+    """
+
+    def setUp(self):
+        self._cfg_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._cfg_dir, ignore_errors=True)
 
     def _run_main(self, input_data):
         import subprocess
+        env = dict(os.environ, CODEBUDDY_CONFIG_DIR=self._cfg_dir)
         result = subprocess.run(
             [sys.executable, os.path.join(os.path.dirname(__file__), 'statusline.py')],
             input=json.dumps(input_data),
@@ -20,6 +31,7 @@ class TestMainNullSafety(unittest.TestCase):
             stderr=subprocess.PIPE,
             universal_newlines=True,
             timeout=5,
+            env=env,
         )
         return result
 

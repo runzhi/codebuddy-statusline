@@ -32,7 +32,7 @@ python3 ~/.codebuddy/statusline/config.py list
 ```
 
 Available blocks: `cwd_git`, `model`, `context_bar`, `compact_periodic`,
-`tokens`, `requests`, `cost`, `credits`, `time`, `lines`.
+`tokens`, `requests`, `cost`, `credits`, `time`, `speed`, `lines`.
 
 After running the command, read its printed "Layout (effective)" output and
 confirm the change to the user in one short line. If the helper prints "Unknown

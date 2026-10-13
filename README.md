@@ -64,6 +64,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codebuddy\statusline
 | `Cost:$0.69(¥4.83)` | 总费用（美元/人民币），总费用 = 平台 cost + credits/100 |
 | `Credits:67.20` | 消耗 Credits |
 | `Time:45s` | 会话耗时 |
+| `Avg:24.3t/s` | **会话平均**输出速率 = 累计 Out ÷ 累计 API 耗时（`total_api_duration_ms`，为端到端请求耗时，**含网络/TTFT**） |
 | `+156/-23` | 代码增删行数 |
 
 **Compact vs Periodic 区别：**
@@ -85,12 +86,20 @@ Tools: ✓ Bash×15 | ✓ Read×2 | ✓ Edit | ↑ Agent ✓ Agent×2
 ### 第三行：最近交互详情 & Function Call
 
 ```
-Recent: In:3.2K Out:856 Cache:2.1K(65%) Cost:$0.02(¥0.11) Credits:1.50 | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
+Recent: In:3.2K Out:856 Cache:2.1K(65%) Cost:$0.02(¥0.11) Credits:1.50 Speed:24.3t/s | Bash apt-get install -y tmux | Read /data/app/main.py | Edit /data/app/config.yaml
 ```
 
 左侧展示最近一次 API 交互的 Token 明细和 Cache 命中率，右侧展示最近 3 次工具调用的名称及参数摘要（超过 60 字符自动截断）。
 
 > 注意：`In` 字段（`inputTokens`）已包含 `Cache` 命中部分，`Cache` 是 `In` 的子集，不应将两者相加。
+
+`Speed:` 是**最近速率**，与第一行的 `Avg:`（会话累计平均）区分：
+
+- 宿主只上报**累计** API 时长（`cost.total_api_duration_ms`），拿不到单次请求的耗时，因此无法直接算「最近一次交互」的速率。
+- 改为**跨轮差分**：记录上一次渲染的累计计数，用 `ΔOut / ΔAPI时长` 得到两次刷新之间的速率。
+- ⚠️ 该时长是**端到端请求耗时**（`Date.now()` − 请求发出时刻），**包含网络往返与首字节延迟 TTFT**（实测首字节常在 ~2s），因此 `Speed:` / `Avg:` 反映的是**端到端输出吞吐**，会低于模型的实际生成速度。
+- 两次刷新之间没有新的可测量增量时沿用上一次的数值，避免闪烁；宿主未提供时长或首次调用时不显示。
+- 差分状态存于缓存目录下的 `<session_id>.rate.json`，随缓存的 7 天清理一同回收。
 
 ## 自动更新
 
@@ -148,7 +157,8 @@ python3 ~/.codebuddy/statusline/cost-detail.py
 {
   "layout": {
     "line1_order": ["cwd_git", "model", "context_bar", "compact_periodic",
-                    "tokens", "requests", "cost", "credits", "time", "lines"],
+                    "tokens", "requests", "cost", "credits", "time", "speed",
+                    "lines"],
     "line1_hidden": [],
     "tools": true,
     "recent": true
@@ -166,8 +176,10 @@ python3 ~/.codebuddy/statusline/cost-detail.py
 
 ```
 cwd_git · model · context_bar · compact_periodic
-tokens · requests · cost · credits · time · lines
+tokens · requests · cost · credits · time · speed · lines
 ```
+
+> `speed` 块即第一行的 `Avg:`（会话平均输出速率）；第三行的 `Speed:` 属于 `recent` 行，由 `recent` 开关控制。
 
 ### 两条关键规则
 

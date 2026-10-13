@@ -19,7 +19,7 @@ _CONFIG_DIR = os.environ.get('CODEBUDDY_CONFIG_DIR', '') or os.path.expanduser("
 _PLUGIN_DATA = os.path.join(_CONFIG_DIR, "plugins/data/statusline")
 CACHE_DIR = os.path.join(_PLUGIN_DATA, "cache")
 CACHE_MAX_AGE_DAYS = 7
-CACHE_VERSION = 8
+CACHE_VERSION = 9
 
 # PLUGIN_DIR is the directory this script lives in (the git-clone install dir).
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -97,6 +97,104 @@ def save_cache(session_id, stats, main_offset, sub_offsets=None):
         os.replace(tmp_path, cache_path)
     except IOError:
         pass
+
+
+# --- Recent throughput ("Speed" line-3 item) --------------------------------
+#
+# The host exposes only *cumulative* API time (cost.total_api_duration_ms),
+# which is an end-to-end request duration (per-request time is `Date.now()`
+# minus the request's start), so it includes network/TTFT and the derived rate
+# is a throughput figure rather than pure model speed. To show a recent rate we
+# diff the cumulative counters against the previous invocation and divide:
+# Δoutput / Δapi_time. The window is the gap between two renders, which is
+# short (the host re-renders on cost/result events), so the result approximates
+# the current throughput. The previous counters live in a small per-session
+# sidecar next to the stats cache.
+
+def _rate_path(session_id):
+    return os.path.join(CACHE_DIR, f"{session_id}.rate.json")
+
+
+def load_rate_snapshot(session_id):
+    """Load {output, api_ms, rate} recorded by the previous invocation, or None."""
+    try:
+        with open(_rate_path(session_id), 'r') as f:
+            data = json.load(f)
+    except (IOError, ValueError):  # ValueError covers json.JSONDecodeError
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def save_rate_snapshot(session_id, snapshot):
+    """Persist the rate snapshot dict (atomic write-to-temp + rename)."""
+    path = _rate_path(session_id)
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(tmp, 'w') as f:
+            json.dump(snapshot, f)
+        os.replace(tmp, path)
+    except IOError:
+        pass
+
+
+_RATE_SNAPSHOT_VERSION = 2
+
+
+def update_rate_snapshot(session_id, output_tokens, api_ms):
+    """Return the recent output rate (tokens/s), or None when not measurable.
+
+    Rate = Δoutput ÷ Δcost.total_api_duration_ms between two statusline
+    renders. That duration is the host's cumulative API time — an end-to-end
+    request duration, so it includes network/TTFT and therefore understates
+    pure model generation. It is the only clock the host exposes, and mixing
+    in a second (transcript) clock would measure something different.
+
+    Returns the last measured rate when this render adds no new sample, so
+    the display does not flicker.
+    """
+    if output_tokens <= 0 or api_ms <= 0:
+        return None
+
+    prev = load_rate_snapshot(session_id)
+    if prev is None or prev.get("v") != _RATE_SNAPSHOT_VERSION:
+        # First call for this session, or a sidecar from an older format.
+        save_rate_snapshot(session_id, {"v": _RATE_SNAPSHOT_VERSION,
+                                        "output": output_tokens, "api_ms": api_ms,
+                                        "rate": None})
+        return None
+
+    prev_out = prev.get("output") or 0
+    prev_api = prev.get("api_ms") or 0
+    last_rate = prev.get("rate")
+
+    if output_tokens < prev_out:
+        # Output counter went backwards (cache reset / reused session id):
+        # re-baseline rather than compute a bogus rate.
+        save_rate_snapshot(session_id, {"v": _RATE_SNAPSHOT_VERSION,
+                                        "output": output_tokens, "api_ms": api_ms,
+                                        "rate": None})
+        return None
+
+    # The host total can originate from different CostService instances and
+    # therefore jump around; keep a high-water mark so it only advances.
+    if api_ms < prev_api:
+        api_ms = prev_api
+
+    d_out = output_tokens - prev_out
+    d_api = api_ms - prev_api
+
+    if d_out > 0 and d_api > 0:
+        last_rate = d_out / (d_api / 1000.0)
+        save_rate_snapshot(session_id, {"v": _RATE_SNAPSHOT_VERSION,
+                                        "output": output_tokens, "api_ms": api_ms,
+                                        "rate": last_rate})
+        return last_rate
+
+    # Nothing new to measure. Keep the stored baseline (and rate) so the
+    # pending increment accumulates into the next round instead of being
+    # discarded — updating it here would make the two deltas reset forever.
+    return last_rate
 
 
 def maybe_auto_update():

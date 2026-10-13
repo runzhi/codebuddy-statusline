@@ -11,6 +11,12 @@
 - **Time 块支持小时显示**：会话时长超过 1 小时时 `Time:` 从 `123m45s` 变为 `2h3m45s`，与分钟档风格一致。
 - **tokens 块 Cache 显示总命中率**：第一行 Cache 从 `Cache:2.2M` 变为 `Cache:2.2M(74%)`（Cache/In 百分比，`int()` 向下截断），与第三行最近一次交互的格式对齐。纯展示改动，CACHE_VERSION 不变。
 - **无最大上下文元数据时回退显示当前用量**：部分模型（如 hy4-dev）没有最大上下文数据，`context_window_size=0` 且 `used_percentage` 为 null，此前 context_bar 整块消失。现在回退显示 `current_usage.input_tokens` 的当前用量，把「无比例」和「无数据」区分开。
+- **新增 `Avg` 块与第三行 `Speed`（输出 Token 速率）**：
+  - 第一行 `Avg:24.3t/s`：**会话累计平均** = 累计输出 Token ÷ 有效 API 时长。可作为块被 `hide`/`show`/`move`。
+  - 第三行 `Speed:24.3t/s`：**最近速率**，用跨轮差分（`ΔOut / Δ时间`）近似两次渲染之间的生成速率；无新输出时沿用上次值避免闪烁，首次调用/计数回退时不显示。
+  - 时间基准为宿主的**累计 API 时长**（`Δtotal_api_duration_ms`）。该值取自 `Date.now() - 请求发出时刻`，是**端到端请求耗时，含网络往返与首字节延迟 TTFT**（实测 ttft≈1.9s），因此 `Avg`/`Speed` 是**端到端输出吞吐**、低于模型实际生成速度；宿主未暴露「首字到末字」时长，无法算出纯生成速率。
+  - **两个必要保护**（缺一会退回"永不显示"）：① 仅当 `Δoutput>0` 且 `Δapi>0` 才产出样本并推进基线，否则保留基线让增量**累积**——宿主时钟与 transcript 写入常在不同渲染里错峰到达；② 宿主累计值可能来自不同 `CostService` 实例而上下跳，故取**高水位**只增不减。
+  - `output<=0` 或 `api_ms<=0` 的调用不写基线（否则下轮与 0 差分出整段累计值）。第一行 `Avg` = 累计输出 Token ÷ `cost.total_api_duration_ms`（宿主原值）；宿主未提供时不渲染。差分状态存于 `<session_id>.rate.json`（`v` 不符即 rebase），随缓存的 7 天清理回收。**CACHE_VERSION 8 → 9**（首次刷新会全量重解析一次）。
 
 ### 修复 (Fixed)
 
